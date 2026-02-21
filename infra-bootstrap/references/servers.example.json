@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "vast-prod-a": {
+      "host": "root@ssh3.vast.ai",
+      "port": 25919,
+      "ssh_key": "~/.ssh/ed25519_NoPass",
+      "dataset_base": "/workspace/datasets",
+      "workspace_dir": "/workspace",
+      "model_dir": "/workspace/models/sdxl",
+      "python_bin": "python3"
+    }
+  }
+}

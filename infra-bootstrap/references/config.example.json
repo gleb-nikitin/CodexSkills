@@ -1,0 +1,31 @@
+{
+  "server": {
+    "host": "root@ssh3.vast.ai",
+    "port": 25919,
+    "ssh_key": "/Users/glebnikitin/.ssh/ed25519_NoPass"
+  },
+  "remote_dirs": [
+    "/workspace",
+    "/workspace/datasets",
+    "/workspace/models/sdxl",
+    "/workspace/out_lora",
+    "/workspace/logs"
+  ],
+  "dataset": {
+    "local_path": "/ABSOLUTE/PATH/TO/DATASET_DIR",
+    "remote_path": "/workspace/datasets/kbb1/1_kbb1"
+  },
+  "model": {
+    "local_path": "/ABSOLUTE/PATH/TO/bigLove_lust1.safetensors",
+    "remote_path": "/workspace/models/sdxl/bigLove_lust1.safetensors"
+  },
+  "python_checks": {
+    "python_bin": "python3",
+    "required_imports": [
+      "torch",
+      "torchvision",
+      "accelerate",
+      "safetensors"
+    ]
+  }
+}

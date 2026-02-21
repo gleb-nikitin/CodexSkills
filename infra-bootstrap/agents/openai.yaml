@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Infra Bootstrap
+  short_description: Deterministic Vast.ai server onboarding
+  default_prompt: Run deterministic bootstrap v2 using explicit config.

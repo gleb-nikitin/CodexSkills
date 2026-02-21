@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MODE="${1:-pr}"
+shift $(( $# > 0 ? 1 : 0 ))
+
+REPO=""
+TOPIC=""
+DRY_RUN=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo)
+      REPO="${2:-}"
+      shift 2
+      ;;
+    --topic)
+      TOPIC="${2:-}"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    -h|--help)
+      echo "Usage: run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run]" >&2
+      exit 0
+      ;;
+    *)
+      echo "Unknown arg: $1" >&2
+      echo "Usage: run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run]" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ "$MODE" != "pr" && "$MODE" != "no-pr" ]]; then
+  echo "Usage: run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run]" >&2
+  exit 2
+fi
+
+if [[ -z "$REPO" ]]; then
+  # Keep deterministic: require explicit repo path from the caller.
+  echo "Missing required flag: --repo <path>" >&2
+  echo "Usage: run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run]" >&2
+  exit 2
+fi
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+exec python3 "$SCRIPT_DIR/git_publish.py" --mode "$MODE" --repo "$REPO" ${TOPIC:+--topic "$TOPIC"} $([[ "$DRY_RUN" -eq 1 ]] && echo "--dry-run")
