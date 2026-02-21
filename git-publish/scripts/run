@@ -1,8 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-pr}"
+MODE_RAW="${1:-pr}"
 shift $(( $# > 0 ? 1 : 0 ))
+
+# Accept deterministic aliases for no-pr mode from policy language.
+case "$MODE_RAW" in
+  pr)
+    MODE="pr"
+    ;;
+  no-pr|no_pr|nopr|"пуш без пр"|"push no pr"|"push without pr")
+    MODE="no-pr"
+    ;;
+  *)
+    MODE="$MODE_RAW"
+    ;;
+esac
 
 REPO=""
 TOPIC=""
@@ -24,6 +37,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h|--help)
       echo "Usage: run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run]" >&2
+      echo "Aliases for no-pr: 'пуш без пр', 'push no pr', 'push without pr'" >&2
       exit 0
       ;;
     *)
@@ -36,6 +50,7 @@ done
 
 if [[ "$MODE" != "pr" && "$MODE" != "no-pr" ]]; then
   echo "Usage: run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run]" >&2
+  echo "Aliases for no-pr: 'пуш без пр', 'push no pr', 'push without pr'" >&2
   exit 2
 fi
 
