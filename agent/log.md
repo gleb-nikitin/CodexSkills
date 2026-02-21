@@ -17,3 +17,4 @@
 2026-02-21 19:59 | overlord-review | verified handoff facts for hygiene import commit f33a7a8; no blocking mismatches found; noted unrelated pre-existing workspace changes remain | success
 2026-02-21 20:01 | standards check | verified rss/skills baseline compliance (required files + skill structure + quick secret-pattern scan) | success
 2026-02-21 20:02 | git-publish skill | push mode=pr branch=codex/skills-sync base=main pr=https://github.com/gleb-nikitin/CodexSkills/pull/1 | success
+2026-02-21 20:11 | main-sync | rebased main onto origin/main, resolved legacy log conflict by adopting agent/log.md policy
