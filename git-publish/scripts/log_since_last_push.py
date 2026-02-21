@@ -39,8 +39,8 @@ def lines_since_last_success(lines: list[str]) -> list[str]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Print log.md lines since last successful git-publish marker.")
-    ap.add_argument("--log", default="log.md", help="Path to log file (default: ./log.md)")
+    ap = argparse.ArgumentParser(description="Print agent/log.md lines since last successful git-publish marker.")
+    ap.add_argument("--log", default="agent/log.md", help="Path to log file (default: ./agent/log.md)")
     ap.add_argument("--max", type=int, default=200, help="Max lines to print (default: 200)")
     args = ap.parse_args()
 
@@ -61,4 +61,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

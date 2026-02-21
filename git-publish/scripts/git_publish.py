@@ -54,8 +54,17 @@ def now_ts() -> str:
     return out(["date", "+%Y-%m-%d %H:%M"])
 
 
-def append_project_log(project_root: Path, line: str) -> None:
-    log_path = project_root / "log.md"
+def resolve_project_log_path(project_root: Path) -> Path:
+    agent_log = project_root / "agent" / "log.md"
+    root_log = project_root / "log.md"
+    if agent_log.exists():
+        return agent_log
+    if root_log.exists():
+        return root_log
+    return agent_log
+
+
+def append_project_log(log_path: Path, line: str) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as f:
         f.write(line.rstrip("\n") + "\n")
@@ -170,8 +179,9 @@ def build_pr_body(project_root: Path, base: str, head: str) -> str:
     lines.append("")
     lines.append("Log since last git-publish marker:")
     helper = SCRIPT_DIR / "log_since_last_push.py"
+    log_path = resolve_project_log_path(project_root)
     if helper.exists():
-        p = run(["python3", str(helper), "--log", str(project_root / "log.md"), "--max", "80"], check=False)
+        p = run(["python3", str(helper), "--log", str(log_path), "--max", "80"], check=False)
         txt = (p.stdout or "").strip()
         lines.append(txt if txt else "(no log lines)")
     else:
@@ -205,8 +215,10 @@ def api_pr_create(base: str, head: str, title: str, body: str) -> str | None:
 
 
 def commit_log_marker(project_root: Path, marker: str, remote: str, branch: str) -> None:
-    append_project_log(project_root, marker)
-    run(["git", "add", "--", "log.md"])
+    log_path = resolve_project_log_path(project_root)
+    append_project_log(log_path, marker)
+    rel_log = os.path.relpath(log_path, project_root)
+    run(["git", "add", "--", rel_log])
     if staged_is_empty():
         return
     run(["git", "commit", "-m", "chore: git-publish marker"])
