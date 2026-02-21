@@ -18,3 +18,4 @@
 2026-02-21 20:01 | standards check | verified rss/skills baseline compliance (required files + skill structure + quick secret-pattern scan) | success
 2026-02-21 20:02 | git-publish skill | push mode=pr branch=codex/skills-sync base=main pr=https://github.com/gleb-nikitin/CodexSkills/pull/1 | success
 2026-02-21 20:11 | main-sync | rebased main onto origin/main, resolved legacy log conflict by adopting agent/log.md policy
+2026-02-21 20:11 | git-hygiene-apply | ran git_hygiene.sh --apply on skills repo; no gone branches, main up-to-date
