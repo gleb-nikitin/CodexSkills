@@ -6,3 +6,4 @@
 2026-02-21 00:59 | remote-check | confirmed private repo gleb-nikitin/CodexSkills via gh auth
 2026-02-21 01:01 | git-init+remote | initialized local git, added origin, fetched origin/main
 2026-02-21 01:01 | skill-smoke-check | python compile + shell syntax + run help checks passed for git-publish and infra-bootstrap
+2026-02-21 01:01 | github-sync | force-pushed local baseline to origin/main and verified remote tree
