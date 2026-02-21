@@ -1,6 +1,6 @@
 ---
 name: git-publish
-description: Deterministic Git publish workflow for solo repos in /Users/glebnikitin/work. Use when the user says 'пуш', 'git push', 'push', or 'пуш без пр'. Creates a branch + PR by default; supports direct push to default branch only when explicitly requested.
+description: Deterministic Git publish workflow for solo repos in /Users/glebnikitin/work. Use when the user says 'пуш', 'git push', 'push', 'пуш без пр', 'push no pr', or 'push without pr'. Creates a branch + PR by default; supports direct push to default branch only when explicitly requested.
 ---
 
 # git-publish
@@ -11,7 +11,7 @@ Make git publishing low-friction and low-risk without bloating project context.
 
 Default behavior: **branch + PR**.
 
-Exception: **direct push to default branch** only when user explicitly requests `пуш без пр`.
+Exception: **direct push to default branch** only when user explicitly requests `пуш без пр` / `push no pr` / `push without pr`.
 
 ## Quick start (English)
 
@@ -19,26 +19,36 @@ Run from anywhere (repo is explicit):
 
 - PR mode (default):
   - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/run pr --repo /absolute/path/to/repo --topic <slug>`
-- No-PR mode (only when user explicitly asks `пуш без пр`):
+- No-PR mode (only when user explicitly asks `пуш без пр` / `push no pr` / `push without pr`):
   - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/run no-pr --repo /absolute/path/to/repo`
 - Dry run (prints detected paths; no commit/push):
   - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/run pr --repo /absolute/path/to/repo --dry-run`
+- Git hygiene helper (safe dry-run by default, does not publish):
+  - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/git_hygiene.sh --repo /absolute/path/to/repo`
+  - optional explicit remote:
+    - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/git_hygiene.sh --repo /absolute/path/to/repo --remote <name>`
+  - apply mode:
+    - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/git_hygiene.sh --repo /absolute/path/to/repo --apply`
+  - safety rule:
+    - `--apply` requires a fully clean working tree (including untracked files), otherwise exits with code `2`.
+    - dry-run is read-only: no `fetch`/`prune` and no branch deletions.
+    - in `--apply`, remote fetch/prune failure is fatal (aborts before any branch deletion).
 
 What it does:
 - Reads git status, stages explicit paths (no `git add -A`), commits, pushes.
 - In PR mode, auto-creates a PR via `gh` when authenticated (fallback: API).
-- Appends a `git-publish skill | push ... | success/fail` marker to `log.md`.
+- Appends a `git-publish skill | push ... | success/fail` marker to `agent/log.md` (fallback: `log.md` for legacy repos).
 
 ## Inputs (from user message)
 
-- `mode`: `pr` (default) or `no-pr` (only for `пуш без пр`)
+- `mode`: `pr` (default) or `no-pr` (only for `пуш без пр` / `push no pr` / `push without pr`)
 - `topic`: short slug for branch name `codex/<topic>` (derive if missing)
 - `repo`: absolute path to the target repo (agent must pass it to `scripts/run` via `--repo`)
-- `notes`: short human summary (optional; can be derived from `log.md`)
+- `notes`: short human summary (optional; can be derived from `agent/log.md`)
 
 ## Required project artifacts
 
-- Project root contains `log.md` with format: `YYYY-MM-DD HH:MM | action | result`
+- Project uses `agent/log.md` (or legacy `log.md`) with format: `YYYY-MM-DD HH:MM | action | result`
 
 ## Allowed out-of-scope reads (workspace allowlist)
 
@@ -59,7 +69,7 @@ Preferred auth is GitHub CLI (`gh`) with `gh auth login` (token stored in keyrin
 
 ## Log marker (source of truth for "since last push")
 
-On success, append to project `./log.md` exactly one line:
+On success, append to project `./agent/log.md` (or legacy `./log.md`) exactly one line:
 
 `YYYY-MM-DD HH:MM | git-publish skill | push mode=<pr|no-pr> branch=<name> base=<name> | success`
 
@@ -70,7 +80,7 @@ On failure, append:
 ## What to include in PR/commit context
 
 1. **Git reality**: `git status`, `git diff`, `git diff --staged`, `git diff --stat`.
-2. **Human intent**: lines from `./log.md` since the last `git-publish skill | ... | success` marker.
+2. **Human intent**: lines from `./agent/log.md` (or legacy `./log.md`) since the last `git-publish skill | ... | success` marker.
 
 ## Workflow (agent)
 
@@ -96,13 +106,18 @@ On failure, append:
        - Fallback: `python3 /Users/glebnikitin/work/rss/skills/git-publish/scripts/create_pr.py ...` (uses Keychain or `GITHUB_TOKEN`).
        - If neither is available: provide manual PR creation link.
     - `mode=no-pr`:
-      - Only allowed if user explicitly asked `пуш без пр`.
+      - Only allowed if user explicitly asked `пуш без пр` / `push no pr` / `push without pr`.
       - Push directly to default branch (`main`/`master` as configured in project `AGENTS.md`).
-7. Append the success/fail marker line to `./log.md`.
+7. Append the success/fail marker line to `./agent/log.md` (fallback: `./log.md` for legacy repos).
 
 ## Helpers
 
-- `scripts/log_since_last_push.py`: prints `log.md` lines since last successful git-publish marker (for PR description).
+- `scripts/log_since_last_push.py`: prints `agent/log.md` lines since last successful git-publish marker (for PR description).
 - `scripts/create_pr.py`: creates a PR via GitHub API (uses `GITHUB_TOKEN` or macOS Keychain).
 - `scripts/create_pr_gh.sh`: creates a PR via `gh` (preferred).
 - `scripts/run`: entrypoint to stage/commit/push and create PR automatically (`--repo` required; `--dry-run` supported).
+- `scripts/git_hygiene.sh`: optional git hygiene helper (dry-run lists status/`[gone]` branches only; `--apply` performs `fetch --prune`, ff-update `main` when available, and deletes `[gone]` local branches except current branch).
+  - If `main` cannot be checked out (for example held by another worktree), helper skips main fast-forward and continues cleanup safely.
+  - In `--apply`, helper refreshes all tracked remotes before evaluating branch deletion, and aborts on any fetch failure.
+  - If a gone branch is held by another worktree, helper warns and skips that branch (continues with remaining cleanup).
+  - Main fast-forward uses `main` branch upstream when configured (fallback: selected remote), and pull failure is warning-only (cleanup continues).
