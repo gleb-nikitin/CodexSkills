@@ -1,25 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE_RAW="${1:-pr}"
+usage() {
+  echo "Usage:" >&2
+  echo "  run prepare <pr|no-pr> --repo <path> [--topic <slug>] [--json]" >&2
+  echo "  run publish <pr|no-pr> --repo <path> --plan <file-or-token> [--json]" >&2
+  echo "Legacy:" >&2
+  echo "  run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run] [--json]" >&2
+  echo "Aliases for no-pr: 'пуш без пр', 'push no pr', 'push without pr'" >&2
+}
+
+normalize_mode() {
+  case "${1:-}" in
+    pr)
+      echo "pr"
+      ;;
+    no-pr|no_pr|nopr|"пуш без пр"|"push no pr"|"push without pr")
+      echo "no-pr"
+      ;;
+    *)
+      echo "${1:-}"
+      ;;
+  esac
+}
+
+ACTION=""
+MODE_RAW="${1:-}"
+if [[ "${MODE_RAW:-}" == "prepare" || "${MODE_RAW:-}" == "publish" ]]; then
+  ACTION="$MODE_RAW"
+  shift
+  MODE_RAW="${1:-pr}"
+else
+  ACTION="legacy"
+fi
 shift $(( $# > 0 ? 1 : 0 ))
 
-# Accept deterministic aliases for no-pr mode from policy language.
-case "$MODE_RAW" in
-  pr)
-    MODE="pr"
-    ;;
-  no-pr|no_pr|nopr|"пуш без пр"|"push no pr"|"push without pr")
-    MODE="no-pr"
-    ;;
-  *)
-    MODE="$MODE_RAW"
-    ;;
-esac
-
+MODE="$(normalize_mode "$MODE_RAW")"
 REPO=""
 TOPIC=""
+PLAN=""
 DRY_RUN=0
+JSON=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,36 +52,71 @@ while [[ $# -gt 0 ]]; do
       TOPIC="${2:-}"
       shift 2
       ;;
+    --plan)
+      PLAN="${2:-}"
+      shift 2
+      ;;
     --dry-run)
       DRY_RUN=1
       shift
       ;;
+    --json)
+      JSON=1
+      shift
+      ;;
     -h|--help)
-      echo "Usage: run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run]" >&2
-      echo "Aliases for no-pr: 'пуш без пр', 'push no pr', 'push without pr'" >&2
+      usage
       exit 0
       ;;
     *)
       echo "Unknown arg: $1" >&2
-      echo "Usage: run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run]" >&2
+      usage
       exit 2
       ;;
   esac
 done
 
 if [[ "$MODE" != "pr" && "$MODE" != "no-pr" ]]; then
-  echo "Usage: run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run]" >&2
-  echo "Aliases for no-pr: 'пуш без пр', 'push no pr', 'push without pr'" >&2
+  usage
   exit 2
 fi
 
 if [[ -z "$REPO" ]]; then
-  # Keep deterministic: require explicit repo path from the caller.
   echo "Missing required flag: --repo <path>" >&2
-  echo "Usage: run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run]" >&2
+  usage
   exit 2
 fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+COMMON_ARGS=(--mode "$MODE" --repo "$REPO")
+if [[ -n "$TOPIC" ]]; then
+  COMMON_ARGS+=(--topic "$TOPIC")
+fi
+if [[ "$JSON" -eq 1 ]]; then
+  COMMON_ARGS+=(--json)
+fi
 
-exec python3 "$SCRIPT_DIR/git_publish.py" --mode "$MODE" --repo "$REPO" ${TOPIC:+--topic "$TOPIC"} $([[ "$DRY_RUN" -eq 1 ]] && echo "--dry-run")
+if [[ "$ACTION" == "prepare" ]]; then
+  exec python3 "$SCRIPT_DIR/git_publish.py" --action prepare "${COMMON_ARGS[@]}"
+fi
+
+if [[ "$ACTION" == "publish" ]]; then
+  if [[ -z "$PLAN" ]]; then
+    echo "Missing required flag: --plan <file-or-token>" >&2
+    usage
+    exit 2
+  fi
+  exec python3 "$SCRIPT_DIR/git_publish.py" --action publish "${COMMON_ARGS[@]}" --plan "$PLAN"
+fi
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  exec python3 "$SCRIPT_DIR/git_publish.py" --action prepare "${COMMON_ARGS[@]}"
+fi
+
+PREPARE_ARGS=(--action prepare --mode "$MODE" --repo "$REPO" --json)
+if [[ -n "$TOPIC" ]]; then
+  PREPARE_ARGS+=(--topic "$TOPIC")
+fi
+PLAN_OUTPUT="$(python3 "$SCRIPT_DIR/git_publish.py" "${PREPARE_ARGS[@]}")"
+PLAN_PATH="$(printf '%s\n' "$PLAN_OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["plan_path"])')"
+exec python3 "$SCRIPT_DIR/git_publish.py" --action publish "${COMMON_ARGS[@]}" --plan "$PLAN_PATH"

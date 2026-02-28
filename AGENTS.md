@@ -12,6 +12,8 @@
 - Optional skill subfolders: `scripts/`, `references/`, `assets/`.
 - Do not store secrets, tokens, or keys in skill folders.
 - Keep skill docs compact and LLM-efficient.
-- Log meaningful actions to local `./agent/log.md` as `YYYY-MM-DD HH:MM | action | result`.
+- Log meaningful actions to local `./agent/log.md` as `YYYY-MM-DD HH:MM | category | action | result`.
+- Logging categories: `milestone`, `validation`, `policy`, `incident`.
+- Do not log micro-steps, context loads, file reads, or routine tool calls.
 - `agent/log.md` entries must use current write-time timestamps only.
 - Do not add backfilled/retroactive timestamps.
