@@ -1,123 +1,209 @@
 ---
 name: git-publish
-description: Deterministic Git publish workflow for solo repos in /Users/glebnikitin/work. Use when the user says 'пуш', 'git push', 'push', 'пуш без пр', 'push no pr', or 'push without pr'. Creates a branch + PR by default; supports direct push to default branch only when explicitly requested.
+description: Deterministic Git publish workflow for solo repos in /Users/glebnikitin/work. Use when the user says 'пуш', 'git push', 'push', 'пуш без пр', 'push no pr', or 'push without pr'. Default flow is prepare -> review -> publish with one normal commit.
 ---
 
 # git-publish
 
 ## Intent
 
-Make git publishing low-friction and low-risk without bloating project context.
+Create a low-noise publish flow that agents can use safely:
+- review what will be committed
+- create exactly one normal commit
+- create a normal PR
+- keep rollback guidance obvious
 
-Default behavior: **branch + PR**.
+Default behavior: **prepare -> review -> PR publish**.
 
-Exception: **direct push to default branch** only when user explicitly requests `пуш без пр` / `push no pr` / `push without pr`.
+Exception: direct push to default branch only when the user explicitly requests `пуш без пр` / `push no pr` / `push without pr`.
 
-## Quick start (English)
+## Core Rules
 
-Run from anywhere (repo is explicit):
+- Always pass `--repo /absolute/path/to/repo`.
+- Never use workspace root `/Users/glebnikitin/work` as `--repo`.
+- Always run `prepare` first.
+- After `prepare`, show included/excluded files and wait for explicit user approval before `publish`.
+- `prepare` is read-only.
+- `publish` is the only mutating step.
+- One publish action creates exactly one normal commit.
+- No standalone `chore: git-publish marker` commit is allowed.
+- Success marker is written into the same main publish commit.
+- PR URL is returned in output, not written into the committed success marker.
+- Never use `git add -A` or `git add .`.
+- Stage explicit paths only.
+- PR publish via this skill is allowed autonomously after user approval of the prepared plan.
+- Direct push to the default branch is allowed only when the user explicitly requests `пуш без пр` / `push no pr` / `push without pr`.
 
-- PR mode (default):
-  - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/run pr --repo /absolute/path/to/repo --topic <slug>`
-- No-PR mode (only when user explicitly asks `пуш без пр` / `push no pr` / `push without pr`):
-  - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/run no-pr --repo /absolute/path/to/repo`
-- Dry run (prints detected paths; no commit/push):
-  - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/run pr --repo /absolute/path/to/repo --dry-run`
-- Git hygiene helper (safe dry-run by default, does not publish):
-  - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/git_hygiene.sh --repo /absolute/path/to/repo`
-  - optional explicit remote:
-    - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/git_hygiene.sh --repo /absolute/path/to/repo --remote <name>`
-  - apply mode:
-    - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/git_hygiene.sh --repo /absolute/path/to/repo --apply`
-  - safety rule:
-    - `--apply` requires a fully clean working tree (including untracked files), otherwise exits with code `2`.
-    - dry-run is read-only: no `fetch`/`prune` and no branch deletions.
-    - in `--apply`, remote fetch/prune failure is fatal (aborts before any branch deletion).
+## Recommended Agent Flow
 
-What it does:
-- Reads git status, stages explicit paths (no `git add -A`), commits, pushes.
-- In PR mode, auto-creates a PR via `gh` when authenticated (fallback: API).
-- Appends a `git-publish skill | push ... | success/fail` marker to `agent/log.md` (fallback: `log.md` for legacy repos).
+1. Run `prepare`.
+2. Show the user:
+   - included files
+   - excluded files and reasons
+   - base branch
+   - target branch
+   - commit message
+   - PR title
+3. After approval, run `publish` with the returned `plan_path`.
+4. Return:
+   - commit SHA
+   - PR URL
+   - rollback hint
 
-## Inputs (from user message)
+## Standard Workflow
 
-- `mode`: `pr` (default) or `no-pr` (only for `пуш без пр` / `push no pr` / `push without pr`)
-- `topic`: short slug for branch name `codex/<topic>` (derive if missing)
-- `repo`: absolute path to the target repo (agent must pass it to `scripts/run` via `--repo`)
-- `notes`: short human summary (optional; can be derived from `agent/log.md`)
+### Phase 1: Publish
 
-## Required project artifacts
+1. Run `prepare`.
+2. Show included and excluded files to the user.
+3. Wait for explicit approval.
+4. Run `publish`.
+5. Return the PR URL.
 
-- Project uses `agent/log.md` (or legacy `log.md`) with format: `YYYY-MM-DD HH:MM | action | result`
+### Phase 2: After Merge
 
-## Allowed out-of-scope reads (workspace allowlist)
+When the user confirms the PR was merged:
 
-- `/Users/glebnikitin/.ssh/AGENTS.md` is allowlisted by workspace policy for read-only access.
-- Use it only when GitHub auth details are required (auto-PR creation).
-- Do not copy secrets into repo files or logs. If a token is needed, load it into environment only for the current process/session.
+1. Verify the merge happened.
+2. Require a clean working tree.
+3. Run:
 
-## GitHub auth for auto-PR (recommended)
+```bash
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/git_hygiene.sh --repo /absolute/path/to/repo --apply
+```
 
-Store a GitHub token in macOS Keychain and let `create_pr.py` read it without printing:
+4. Report final local branch state.
 
-- Keychain service (default): `codex_github_token`
-- Keychain account (default): `$USER` (for you: `glebnikitin`)
+For this workflow, post-merge hygiene is the standard completion step.
 
-The token must have permission to create PRs in the target repo.
+## Commands
 
-Preferred auth is GitHub CLI (`gh`) with `gh auth login` (token stored in keyring).
+PR mode:
 
-## Log marker (source of truth for "since last push")
+```bash
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run prepare pr --repo /absolute/path/to/repo --topic <slug>
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run publish pr --repo /absolute/path/to/repo --plan /tmp/git-publish-plans/<token>.json
+```
 
-On success, append to project `./agent/log.md` (or legacy `./log.md`) exactly one line:
+No-PR mode:
 
-`YYYY-MM-DD HH:MM | git-publish skill | push mode=<pr|no-pr> branch=<name> base=<name> | success`
+```bash
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run prepare no-pr --repo /absolute/path/to/repo
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run publish no-pr --repo /absolute/path/to/repo --plan /tmp/git-publish-plans/<token>.json
+```
 
-On failure, append:
+Legacy compatibility (kept temporarily):
 
-`YYYY-MM-DD HH:MM | git-publish skill | push mode=<pr|no-pr> branch=<name> base=<name> | fail: <short-reason>`
+```bash
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run pr --repo /absolute/path/to/repo --topic <slug>
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run pr --repo /absolute/path/to/repo --dry-run
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run no-pr --repo /absolute/path/to/repo
+```
 
-## What to include in PR/commit context
+Do not use legacy one-shot commands for new agent work. They exist only for temporary backward compatibility.
 
-1. **Git reality**: `git status`, `git diff`, `git diff --staged`, `git diff --stat`.
-2. **Human intent**: lines from `./agent/log.md` (or legacy `./log.md`) since the last `git-publish skill | ... | success` marker.
+## What `prepare` Reports
 
-## Workflow (agent)
+`prepare` reports:
+- included files
+- excluded files
+- exclusion reasons
+- base branch
+- target branch
+- commit message
+- PR title
+- active log path
+- plan path
 
-1. Always pass the target repo explicitly (`--repo /absolute/path/to/repo`) to avoid publishing from the wrong directory.
-2. Ensure repo is valid (`git rev-parse --show-toplevel`).
-2. Collect log context since last successful push marker:
-   - Prefer the helper: `python3 /Users/glebnikitin/work/rss/skills/git-publish/scripts/log_since_last_push.py`
-3. Preflight:
-   - `git status --porcelain -b`
-   - `git diff --stat`
-   - Fail fast if there are suspicious files (secrets, `.env` without example, large binaries) unless user explicitly allows.
-4. Staging policy (safe default):
-   - Never use `git add -A` or `git add .`.
-   - Stage explicit paths computed from `git status --porcelain`, excluding obvious junk (e.g. `.DS_Store`).
-   - If untracked files exist, stage only those explicitly relevant (ask if unclear).
-5. Commit message:
-   - Use a short message derived from `topic` + log summary (1 line).
-6. Publish:
-    - `mode=pr`:
-      - Create/switch to `codex/<topic>` and push it.
-     - Create PR automatically when auth is available:
-       - Preferred: GitHub CLI (`gh pr create ...`) when installed and authenticated.
-       - Fallback: `python3 /Users/glebnikitin/work/rss/skills/git-publish/scripts/create_pr.py ...` (uses Keychain or `GITHUB_TOKEN`).
-       - If neither is available: provide manual PR creation link.
-    - `mode=no-pr`:
-      - Only allowed if user explicitly asked `пуш без пр` / `push no pr` / `push without pr`.
-      - Push directly to default branch (`main`/`master` as configured in project `AGENTS.md`).
-7. Append the success/fail marker line to `./agent/log.md` (fallback: `./log.md` for legacy repos).
+Classification rules:
+- tracked modified/deleted/renamed files: included by default
+- `.DS_Store`: `excluded-junk`
+- suspicious untracked files like `.env`, `.env.local`, `.key`, `.pem`, `.p12`, `.pfx`: `excluded-unclear`
+- other untracked files: `excluded-untracked` by default
+- untracked directories: `excluded-untracked` by default; `prepare` reports them without recursive expansion
+- only narrow safe text/code/doc files are auto-included
+
+`prepare` also freezes log context into the plan so the publish-time success marker does not erase PR body context.
+
+## What `publish` Does
+
+`publish`:
+- loads the approved plan
+- verifies repo state did not drift after `prepare`
+- stages only approved explicit paths
+- appends the success marker before commit
+- creates one normal commit
+- pushes branch or base
+- creates PR in `pr` mode
+- prints rollback guidance
+
+If repo state drifted after `prepare`, publish must fail and require a fresh `prepare`.
+
+## After Merge Expectations
+
+After a successful merge and hygiene apply, the expected local result is:
+- current branch is `main`
+- local `main` is updated to `origin/main`
+- stale remote refs are pruned
+- local gone feature branches are removed
+
+Important limitation:
+- remote feature branch deletion on GitHub is not guaranteed by `git_hygiene.sh`
+- in practice this depends on GitHub auto-delete branch settings or a separate manual/future automated step
+
+## Success Marker
+
+Success marker format:
+
+```text
+YYYY-MM-DD HH:MM | git-publish skill | push mode=<pr|no-pr> branch=<name> base=<name> | success
+```
+
+Failure markers may still be written on failed publish attempts.
+
+## Output Expectations
+
+Prepare output should make it easy for an agent to ask for approval.
+
+Publish output should include at least:
+- mode
+- repo
+- base
+- branch
+- commit SHA
+- included files
+- log path
+- PR URL in PR mode
+- rollback hint
+
+Rollback hint:
+- merge commit rollback: `git revert -m 1 <merge_commit_sha>`
+- direct single-commit rollback: `git revert <commit_sha>`
+
+## Safety
+
+Keep these protections:
+- explicit staging only
+- `gh` PR creation with API fallback
+- drift check before mutation
+- low-noise successful output
+- append-only project log marker behavior
+- no publish from workspace root
+- no direct push to default branch without explicit user request
+
+## Project Log
+
+Project log path:
+- prefer `./agent/log.md`
+- fallback `./log.md`
+
+Legacy log lines remain valid.
 
 ## Helpers
 
-- `scripts/log_since_last_push.py`: prints `agent/log.md` lines since last successful git-publish marker (for PR description).
-- `scripts/create_pr.py`: creates a PR via GitHub API (uses `GITHUB_TOKEN` or macOS Keychain).
-- `scripts/create_pr_gh.sh`: creates a PR via `gh` (preferred).
-- `scripts/run`: entrypoint to stage/commit/push and create PR automatically (`--repo` required; `--dry-run` supported).
-- `scripts/git_hygiene.sh`: optional git hygiene helper (dry-run lists status/`[gone]` branches only; `--apply` performs `fetch --prune`, ff-update `main` when available, and deletes `[gone]` local branches except current branch).
-  - If `main` cannot be checked out (for example held by another worktree), helper skips main fast-forward and continues cleanup safely.
-  - In `--apply`, helper refreshes all tracked remotes before evaluating branch deletion, and aborts on any fetch failure.
-  - If a gone branch is held by another worktree, helper warns and skips that branch (continues with remaining cleanup).
-  - Main fast-forward uses `main` branch upstream when configured (fallback: selected remote), and pull failure is warning-only (cleanup continues).
+- `scripts/run`: wrapper for `prepare` and `publish`
+- `scripts/git_publish.py`: core implementation
+- `scripts/log_since_last_push.py`: log context helper
+- `scripts/create_pr_gh.sh`: PR creation via `gh`
+- `scripts/create_pr.py`: PR creation via GitHub API
+- `scripts/git_hygiene.sh`: standard post-merge local cleanup step for this workflow
