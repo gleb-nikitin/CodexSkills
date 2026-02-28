@@ -129,6 +129,7 @@ Classification rules:
 
 `publish`:
 - loads the approved plan
+- validates that the requested `--repo` and `--mode` still match the approved plan
 - verifies repo state did not drift after `prepare`
 - stages only approved explicit paths
 - appends the success marker before commit
@@ -138,6 +139,9 @@ Classification rules:
 - prints rollback guidance
 
 If repo state drifted after `prepare`, publish must fail and require a fresh `prepare`.
+
+Legacy one-shot compatibility:
+- if legacy one-shot prepare finds no includable files, it should return a clean no-op success instead of failing in publish
 
 ## After Merge Expectations
 

@@ -43,3 +43,7 @@
 2026-02-28 18:44 | policy | post-merge hygiene docs | elevated hygiene to standard post-merge step in SKILL.md and current-state context; kept remote branch deletion as deferred roadmap item
 2026-02-28 18:57 | policy | untracked-dir fix spec | created minimal blocking-fix spec for git-publish prepare crash on untracked directories
 2026-02-28 19:05 | git-publish skill | push mode=pr branch=codex/skills-sync base=main | success
+2026-02-28 19:22 | milestone | post-merge cleanup | fast-forwarded local main to origin/main and removed merged codex/skills-sync branch locally and on origin
+2026-02-28 19:22 | milestone | git-publish guards | added publish plan repo/mode enforcement and legacy no-op success behavior
+2026-02-28 19:22 | validation | git-publish guards | temp-repo validation passed for repo/mode mismatch rejection, legacy no-op success, and preserved one-commit PR publish
+2026-02-28 19:22 | git-publish skill | push mode=pr branch=codex/git-publish-guards base=main | success

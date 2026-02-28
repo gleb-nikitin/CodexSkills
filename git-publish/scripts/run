@@ -118,5 +118,14 @@ if [[ -n "$TOPIC" ]]; then
   PREPARE_ARGS+=(--topic "$TOPIC")
 fi
 PLAN_OUTPUT="$(python3 "$SCRIPT_DIR/git_publish.py" "${PREPARE_ARGS[@]}")"
+INCLUDED_COUNT="$(printf '%s\n' "$PLAN_OUTPUT" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["included_paths"]))')"
+if [[ "$INCLUDED_COUNT" == "0" ]]; then
+  if [[ "$JSON" -eq 1 ]]; then
+    printf '%s\n' "$PLAN_OUTPUT"
+  else
+    echo "No changes to publish."
+  fi
+  exit 0
+fi
 PLAN_PATH="$(printf '%s\n' "$PLAN_OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["plan_path"])')"
 exec python3 "$SCRIPT_DIR/git_publish.py" --action publish "${COMMON_ARGS[@]}" --plan "$PLAN_PATH"
