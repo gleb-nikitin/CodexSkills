@@ -82,6 +82,10 @@ def require_git_repo() -> Path:
     return Path(out(["git", "rev-parse", "--show-toplevel"]))
 
 
+def git_repo_root(candidate: Path) -> Path:
+    return Path(out(["git", "-C", str(candidate), "rev-parse", "--show-toplevel"]))
+
+
 def default_remote_branch(remote: str) -> str:
     try:
         info = out(["git", "remote", "show", remote])
@@ -434,6 +438,28 @@ def load_plan(plan_arg: str) -> dict:
     return json.loads(raw.decode("utf-8"))
 
 
+def resolve_requested_repo_root(repo_arg: str) -> Path:
+    repo_path = Path(repo_arg).expanduser().resolve()
+    if not repo_path.exists():
+        raise RuntimeError(f"--repo path does not exist: {repo_path}")
+    try:
+        return git_repo_root(repo_path)
+    except Exception as exc:
+        raise RuntimeError(f"Not a git repo: {repo_path}") from exc
+
+
+def validate_plan_request(plan: dict, requested_repo_root: Path, requested_mode: str) -> None:
+    plan_repo_root = Path(plan["repo_root"]).resolve()
+    if requested_repo_root != plan_repo_root:
+        raise RuntimeError(
+            f"Plan repo mismatch: requested {requested_repo_root}, plan targets {plan_repo_root}. Rerun prepare."
+        )
+    if requested_mode != plan["mode"]:
+        raise RuntimeError(
+            f"Plan mode mismatch: requested {requested_mode}, plan targets {plan['mode']}. Rerun prepare."
+        )
+
+
 def build_prepare_plan(
     *,
     project_root: Path,
@@ -677,7 +703,10 @@ def main() -> int:
         if not args.plan:
             print("Missing required flag: --plan <file-or-token>", file=sys.stderr)
             return 2
-        return publish(load_plan(args.plan), args.json)
+        requested_repo_root = resolve_requested_repo_root(args.repo)
+        plan = load_plan(args.plan)
+        validate_plan_request(plan, requested_repo_root, args.mode)
+        return publish(plan, args.json)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
