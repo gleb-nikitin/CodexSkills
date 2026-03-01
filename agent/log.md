@@ -47,3 +47,7 @@
 2026-02-28 19:22 | milestone | git-publish guards | added publish plan repo/mode enforcement and legacy no-op success behavior
 2026-02-28 19:22 | validation | git-publish guards | temp-repo validation passed for repo/mode mismatch rejection, legacy no-op success, and preserved one-commit PR publish
 2026-02-28 19:22 | git-publish skill | push mode=pr branch=codex/git-publish-guards base=main | success
+2026-02-28 19:25 | milestone | end-to-end acceptance | completed publish-merge-cleanup cycle for git-publish guards; local state now main synced with origin and feature branch removed locally and remotely
+2026-02-28 19:29 | milestone | context handoff | refreshed git-publish current-state and wrote compact workspace handoff in agent/
+2026-03-01 01:37 | incident | hygiene ergonomics feedback | recorded real-usage feedback that harmless untracked files currently block post-merge hygiene and should drive the next separate git_hygiene spec
+2026-03-01 01:54 | git-publish skill | push mode=pr branch=codex/agent-context-sync base=main | success
