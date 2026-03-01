@@ -75,24 +75,23 @@ Why deferred:
 - current production testing mainly needs the agent protocol to be clear
 - remote deletion semantics should be designed explicitly, not patched ad hoc
 
+## Recently completed
+- harmless untracked files during post-merge cleanup
+- spec: `/Users/glebnikitin/work/rss/skills/agent/git-hygiene-untracked-spec.md`
+- status: shipped
+- recursive planning for new untracked project directories
+- spec: `/Users/glebnikitin/work/rss/skills/agent/git-publish-untracked-project-spec.md`
+- status: shipped
+
 ## git_hygiene
 
 Any non-trivial `git_hygiene` evolution requires a separate spec.
 
-### Next likely spec target: harmless untracked files during post-merge cleanup
-Spec drafted at: `/Users/glebnikitin/work/rss/skills/agent/git-hygiene-untracked-spec.md`
+## Next likely spec target
 
-Current production feedback:
-- publish flow is considered good enough in real usage
-- the remaining ergonomics problem is that `git_hygiene.sh --apply` blocks on any untracked files
-- harmless local files can force stash/restore gymnastics just to finish cleanup
+No next `git-publish` spec is selected right now.
 
-Desired future behavior:
-- tracked/staged changes remain blocking
-- harmless untracked files should be warning-only unless they actually block checkout/update
-- post-merge cleanup should still be able to switch to `main`, fast-forward `main`, prune, and remove eligible branches
-
-Likely design direction:
-- separate dangerous dirty state from harmless local untracked state
-- fail only on real checkout/update conflicts, not on the mere existence of untracked files
-- document clearly whether remote branch deletion is in scope for the same flow or remains separate
+Reassess after more real-world feedback on:
+- the narrow safe untracked allowlist
+- plan storage durability outside `/tmp`
+- runtime-only enforcement of policy rules that are currently documented but not hard-blocked

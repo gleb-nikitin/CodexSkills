@@ -16,7 +16,7 @@ from pathlib import Path
 
 
 JUNK_BASENAMES = {".DS_Store"}
-SAFE_UNTRACKED_BASENAMES = {"AGENTS.md", "README.md", "SKILL.md"}
+SAFE_UNTRACKED_BASENAMES = {"AGENTS.md", "README.md", "SKILL.md", ".gitignore"}
 SAFE_UNTRACKED_SUFFIXES = {
     ".c",
     ".cc",
@@ -47,6 +47,10 @@ SAFE_UNTRACKED_SUFFIXES = {
     ".xml",
     ".yaml",
     ".yml",
+}
+UNTRACKED_DIR_REASONS = {
+    ".claude": "excluded-local",
+    "dist": "excluded-build",
 }
 PLAN_DIR = Path(tempfile.gettempdir()) / "git-publish-plans"
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -144,6 +148,14 @@ def is_safe_untracked_path(path: str) -> bool:
     return p.suffix.lower() in SAFE_UNTRACKED_SUFFIXES
 
 
+def untracked_dir_reason(path: str) -> str | None:
+    for part in Path(path).parts:
+        reason = UNTRACKED_DIR_REASONS.get(part.lower())
+        if reason:
+            return reason
+    return None
+
+
 @dataclass(frozen=True)
 class StatusEntry:
     code: str
@@ -171,6 +183,36 @@ def parse_status_z(status_z: str) -> list[StatusEntry]:
             index += 1
         entries.append(StatusEntry(code=code, path=path, orig_path=orig_path))
     return entries
+
+
+def git_status_entries(project_root: Path, *, untracked_all: bool = False, pathspec: str | None = None) -> list[StatusEntry]:
+    cmd = ["git", "status", "--porcelain=1", "-z"]
+    if untracked_all:
+        cmd.append("--untracked-files=all")
+    if pathspec:
+        cmd.extend(["--", pathspec])
+    return parse_status_z(out(cmd, cwd=project_root))
+
+
+def collect_status_entries(project_root: Path) -> list[StatusEntry]:
+    expanded: list[StatusEntry] = []
+    seen: set[tuple[str, str, str | None]] = set()
+    for entry in git_status_entries(project_root):
+        full_path = project_root / entry.path
+        if entry.code == "??" and full_path.is_dir() and not full_path.is_symlink():
+            nested_entries = git_status_entries(project_root, untracked_all=True, pathspec=entry.path)
+            if nested_entries:
+                for nested_entry in nested_entries:
+                    key = (nested_entry.code, nested_entry.path, nested_entry.orig_path)
+                    if key not in seen:
+                        seen.add(key)
+                        expanded.append(nested_entry)
+                continue
+        key = (entry.code, entry.path, entry.orig_path)
+        if key not in seen:
+            seen.add(key)
+            expanded.append(entry)
+    return expanded
 
 
 def file_fingerprint(project_root: Path, path: str) -> str:
@@ -374,6 +416,12 @@ def classify_entries(project_root: Path, entries: list[StatusEntry]) -> tuple[li
             item["reason"] = "excluded-unclear"
             excluded.append(item)
             continue
+        if entry.code == "??":
+            dir_reason = untracked_dir_reason(entry.path)
+            if dir_reason:
+                item["reason"] = dir_reason
+                excluded.append(item)
+                continue
         if entry.code == "??" and not is_safe_untracked_path(entry.path):
             item["reason"] = "excluded-untracked"
             excluded.append(item)
@@ -471,7 +519,7 @@ def build_prepare_plan(
     commit_message: str,
     pr_title: str,
 ) -> dict:
-    entries = parse_status_z(out(["git", "status", "--porcelain=1", "-z"], cwd=project_root))
+    entries = collect_status_entries(project_root)
     included, excluded = classify_entries(project_root, entries)
     branch = base if mode == "no-pr" else f"codex/{topic}"
     base_ref, base_sha = compute_base_ref(remote, base)
@@ -570,7 +618,7 @@ def verify_publish_plan(project_root: Path, plan: dict) -> list[StatusEntry]:
     _, current_base_sha = compute_base_ref(plan["remote"], plan["base"])
     if current_base_sha != plan["base_sha"]:
         raise RuntimeError(f"Base branch '{plan['base']}' moved after prepare; rerun prepare.")
-    current_entries = parse_status_z(out(["git", "status", "--porcelain=1", "-z"], cwd=project_root))
+    current_entries = collect_status_entries(project_root)
     current_state = repo_state_fingerprint(project_root, current_entries)
     if current_state != plan["state"]:
         raise RuntimeError("Repo changes drifted after prepare; rerun prepare.")
