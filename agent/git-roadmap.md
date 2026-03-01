@@ -77,6 +77,20 @@ Why deferred:
 
 ## git_hygiene
 
-Do not expand `git_hygiene` under this roadmap item.
-
 Any non-trivial `git_hygiene` evolution requires a separate spec.
+
+### Next likely spec target: harmless untracked files during post-merge cleanup
+Current production feedback:
+- publish flow is considered good enough in real usage
+- the remaining ergonomics problem is that `git_hygiene.sh --apply` blocks on any untracked files
+- harmless local files can force stash/restore gymnastics just to finish cleanup
+
+Desired future behavior:
+- tracked/staged changes remain blocking
+- harmless untracked files should be warning-only unless they actually block checkout/update
+- post-merge cleanup should still be able to switch to `main`, fast-forward `main`, prune, and remove eligible branches
+
+Likely design direction:
+- separate dangerous dirty state from harmless local untracked state
+- fail only on real checkout/update conflicts, not on the mere existence of untracked files
+- document clearly whether remote branch deletion is in scope for the same flow or remains separate

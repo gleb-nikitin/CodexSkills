@@ -12,6 +12,20 @@ Use this file when another agent needs the current behavior without reading hist
 - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/run`
 - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/git_publish.py`
 - `/Users/glebnikitin/work/rss/skills/git-publish/scripts/log_since_last_push.py`
+- `/Users/glebnikitin/work/rss/skills/git-publish/scripts/git_hygiene.sh`
+
+## Accepted State
+
+The serious publish-flow stabilization phase is complete.
+
+Accepted user-facing cycle:
+1. `prepare`
+2. user review
+3. `publish`
+4. user merges PR
+5. agent runs post-merge cleanup
+
+This cycle was completed end-to-end successfully in production testing.
 
 ## Current Workflow
 
@@ -22,7 +36,7 @@ Use this file when another agent needs the current behavior without reading hist
 
 `prepare` is read-only.
 
-`publish` is the only mutating step.
+`publish` is the only mutating publish step.
 
 ## Commands
 
@@ -51,9 +65,11 @@ Operational rule:
 - no standalone marker-only commit
 - explicit staging only
 - drift checks before mutation
+- `publish` validates requested CLI repo and mode against the loaded plan
 - PR URL returned in output
 - rollback hint returned in output
 - low-noise successful output
+- legacy one-shot returns clean no-op success when nothing is includable
 
 ## Current Prepare Behavior
 
@@ -71,8 +87,8 @@ Operational rule:
 Untracked policy:
 - suspicious paths like `.env`, `.pem`, `.key` -> `excluded-unclear`
 - most ordinary untracked files -> `excluded-untracked`
-- untracked directories -> `excluded-untracked` without recursive expansion
 - only narrow safe text/code/doc files are auto-included
+- untracked directories -> `excluded-untracked` without recursive expansion
 
 `prepare` also freezes pre-publish log context into the plan so the publish-time success marker does not erase PR body context.
 
@@ -91,19 +107,26 @@ Untracked policy:
 
 After the user confirms the PR was merged:
 - verify merge happened
-- require a clean working tree
 - run `scripts/git_hygiene.sh --repo <repo> --apply`
-- report final local branch state
+- report final branch state
 
-Current guaranteed local result:
+Current guaranteed local result when hygiene can run cleanly:
 - checkout on `main`
 - local `main` updated to `origin/main`
 - stale refs pruned
 - local gone branches removed
 
 Current limitation:
+- `git_hygiene.sh --apply` is still strict about untracked files
+- harmless local untracked files can currently block post-merge cleanup
+- users may need temporary stash/move steps before hygiene can complete
 - remote feature branch deletion on GitHub is not guaranteed by current hygiene behavior
-- that depends on GitHub auto-delete branch settings or future dedicated cleanup logic
+- GitHub auto-delete branch settings or manual deletion may still be needed
+
+Most recent production feedback:
+- publish is now considered good enough in real usage
+- the remaining ergonomic gap is hygiene behavior around harmless untracked local files
+- next meaningful improvement should target post-merge cleanup ergonomics, not publish-flow redesign
 
 Success marker format:
 - `YYYY-MM-DD HH:MM | git-publish skill | push mode=<pr|no-pr> branch=<name> base=<name> | success`
@@ -120,10 +143,11 @@ Publish output includes this rollback hint:
 - safe untracked allowlist is intentionally narrow and heuristic
 - untracked directories are reported and excluded, not expanded for nested review
 - legacy one-shot mode still exists only for compatibility and should not be the default agent path
+- harmless untracked files can still make hygiene awkward in real usage
 - remote feature branch deletion after merge is not yet part of the guaranteed automated result
 
 ## Operational Recommendation
 
-If a user says: "new skill, take it into work", an agent should be able to work from `git-publish/SKILL.md` alone.
+If a user says: "new skill, take it into work", an agent should be able to work from `/Users/glebnikitin/work/rss/skills/git-publish/SKILL.md` alone.
 
 This file exists only as compact maintainer context.
