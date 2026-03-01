@@ -51,3 +51,6 @@
 2026-02-28 19:29 | milestone | context handoff | refreshed git-publish current-state and wrote compact workspace handoff in agent/
 2026-03-01 01:37 | incident | hygiene ergonomics feedback | recorded real-usage feedback that harmless untracked files currently block post-merge hygiene and should drive the next separate git_hygiene spec
 2026-03-01 01:54 | git-publish skill | push mode=pr branch=codex/agent-context-sync base=main | success
+2026-03-01 01:57 | milestone | git_hygiene spec | drafted focused spec for allowing harmless untracked files during post-merge cleanup and linked it from roadmap
+2026-03-01 02:05 | milestone | git_hygiene spec | closed focused untracked-file hygiene spec after implementation landed and all required validation cases passed
+2026-03-01 02:07 | git-publish skill | push mode=pr branch=codex/git-hygiene-untracked base=main | success

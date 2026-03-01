@@ -5,6 +5,77 @@ REPO=""
 APPLY=0
 REMOTE=""
 
+is_apply_blocked_by_repo_state() {
+  local line
+  local x
+  local y
+  local has_staged=0
+  local has_unstaged=0
+
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+
+    x="${line:0:1}"
+    y="${line:1:1}"
+
+    case "$x$y" in
+      '??'|'!!')
+        continue
+        ;;
+      'UU'|'AA'|'DD'|'AU'|'UA'|'DU'|'UD')
+        echo "Refusing --apply with unresolved merge/conflict state. Harmless untracked files are allowed, but conflicts must be resolved first." >&2
+        return 0
+        ;;
+    esac
+
+    if [[ "$x" != " " ]]; then
+      has_staged=1
+    fi
+    if [[ "$y" != " " ]]; then
+      has_unstaged=1
+    fi
+  done < <(git status --porcelain=v1)
+
+  if [[ "$has_staged" -eq 1 ]]; then
+    echo "Refusing --apply with staged changes. Harmless untracked files are allowed, but staged state still blocks hygiene." >&2
+    return 0
+  fi
+
+  if [[ "$has_unstaged" -eq 1 ]]; then
+    echo "Refusing --apply with tracked unstaged changes. Harmless untracked files are allowed, but tracked dirty state still blocks hygiene." >&2
+    return 0
+  fi
+
+  return 1
+}
+
+is_untracked_conflict_output() {
+  local output="$1"
+
+  case "$output" in
+    *"untracked working tree files would be overwritten by checkout"*|\
+    *"untracked working tree files would be removed by checkout"*|\
+    *"untracked working tree files would be overwritten by merge"*|\
+    *"untracked working tree files would be removed by merge"*|\
+    *"Updating the following directories would lose untracked files in them:"*)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+exit_for_untracked_conflict() {
+  local phase="$1"
+  local output="$2"
+
+  echo "Cleanup blocked by an actual untracked-file ${phase} conflict. Harmless untracked files are allowed, but this run would overwrite or remove local untracked paths." >&2
+  if [[ -n "$output" ]]; then
+    printf '%s\n' "$output" >&2
+  fi
+  exit 2
+}
+
 usage() {
   echo "Usage: git_hygiene.sh --repo <path> [--remote <name>] [--apply]" >&2
 }
@@ -54,8 +125,7 @@ fi
 cd "$REPO"
 
 if [[ "$APPLY" -eq 1 ]]; then
-  if [[ -n "$(git status --porcelain)" ]]; then
-    echo "Refusing --apply with dirty working tree (including untracked). Commit/stash/clean first." >&2
+  if is_apply_blocked_by_repo_state; then
     exit 2
   fi
 fi
@@ -145,22 +215,45 @@ gone_branches_after_fetch="$(
 )"
 
 if git show-ref --verify --quiet refs/heads/main; then
-  if git checkout main >/dev/null 2>&1; then
+  checkout_stderr="$(mktemp)"
+  if git checkout main >/dev/null 2>"$checkout_stderr"; then
+    rm -f "$checkout_stderr"
     main_upstream_remote="$(git config --get branch.main.remote || true)"
     main_upstream_merge="$(git config --get branch.main.merge || true)"
     if [[ -n "$main_upstream_remote" ]] && [[ -n "$main_upstream_merge" ]] && git remote | grep -Fxq "$main_upstream_remote"; then
       main_upstream_branch="${main_upstream_merge#refs/heads/}"
       if git show-ref --verify --quiet "refs/remotes/$main_upstream_remote/$main_upstream_branch"; then
-        if ! git pull --ff-only "$main_upstream_remote" "$main_upstream_branch"; then
+        pull_stderr="$(mktemp)"
+        if ! git pull --ff-only "$main_upstream_remote" "$main_upstream_branch" 2>"$pull_stderr"; then
+          pull_output="$(cat "$pull_stderr")"
+          rm -f "$pull_stderr"
+          if is_untracked_conflict_output "$pull_output"; then
+            exit_for_untracked_conflict "update" "$pull_output"
+          fi
           echo "warning: unable to fast-forward main from '$main_upstream_remote/$main_upstream_branch'; continuing cleanup." >&2
+        else
+          rm -f "$pull_stderr"
         fi
       fi
     elif [[ -n "$selected_remote" ]] && git show-ref --verify --quiet "refs/remotes/$selected_remote/main"; then
-      if ! git pull --ff-only "$selected_remote" main; then
+      pull_stderr="$(mktemp)"
+      if ! git pull --ff-only "$selected_remote" main 2>"$pull_stderr"; then
+        pull_output="$(cat "$pull_stderr")"
+        rm -f "$pull_stderr"
+        if is_untracked_conflict_output "$pull_output"; then
+          exit_for_untracked_conflict "update" "$pull_output"
+        fi
         echo "warning: unable to fast-forward main from '$selected_remote/main'; continuing cleanup." >&2
+      else
+        rm -f "$pull_stderr"
       fi
     fi
   else
+    checkout_output="$(cat "$checkout_stderr")"
+    rm -f "$checkout_stderr"
+    if is_untracked_conflict_output "$checkout_output"; then
+      exit_for_untracked_conflict "checkout" "$checkout_output"
+    fi
     echo "warning: unable to checkout 'main' (possibly used by another worktree); skipping main fast-forward update." >&2
   fi
 fi
