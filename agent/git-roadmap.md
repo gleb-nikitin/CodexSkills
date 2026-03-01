@@ -80,6 +80,8 @@ Why deferred:
 Any non-trivial `git_hygiene` evolution requires a separate spec.
 
 ### Next likely spec target: harmless untracked files during post-merge cleanup
+Spec drafted at: `/Users/glebnikitin/work/rss/skills/agent/git-hygiene-untracked-spec.md`
+
 Current production feedback:
 - publish flow is considered good enough in real usage
 - the remaining ergonomics problem is that `git_hygiene.sh --apply` blocks on any untracked files

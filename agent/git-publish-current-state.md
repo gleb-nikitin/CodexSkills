@@ -107,6 +107,8 @@ Untracked policy:
 
 After the user confirms the PR was merged:
 - verify merge happened
+- require no staged changes, no tracked unstaged changes, and no unresolved conflicts
+- harmless local untracked files may remain unless they create a real checkout/update conflict
 - run `scripts/git_hygiene.sh --repo <repo> --apply`
 - report final branch state
 
@@ -117,16 +119,15 @@ Current guaranteed local result when hygiene can run cleanly:
 - local gone branches removed
 
 Current limitation:
-- `git_hygiene.sh --apply` is still strict about untracked files
-- harmless local untracked files can currently block post-merge cleanup
-- users may need temporary stash/move steps before hygiene can complete
+- harmless untracked files are allowed only when they do not block checkout or fast-forward update
+- a real untracked-file checkout/update conflict still stops the run safely
 - remote feature branch deletion on GitHub is not guaranteed by current hygiene behavior
 - GitHub auto-delete branch settings or manual deletion may still be needed
 
 Most recent production feedback:
 - publish is now considered good enough in real usage
-- the remaining ergonomic gap is hygiene behavior around harmless untracked local files
-- next meaningful improvement should target post-merge cleanup ergonomics, not publish-flow redesign
+- hygiene now tolerates harmless local untracked files without weakening tracked/staged safety checks
+- next meaningful improvement should stay outside publish-flow redesign
 
 Success marker format:
 - `YYYY-MM-DD HH:MM | git-publish skill | push mode=<pr|no-pr> branch=<name> base=<name> | success`
@@ -143,7 +144,7 @@ Publish output includes this rollback hint:
 - safe untracked allowlist is intentionally narrow and heuristic
 - untracked directories are reported and excluded, not expanded for nested review
 - legacy one-shot mode still exists only for compatibility and should not be the default agent path
-- harmless untracked files can still make hygiene awkward in real usage
+- hygiene still stops when untracked files would be overwritten or removed by checkout/update
 - remote feature branch deletion after merge is not yet part of the guaranteed automated result
 
 ## Operational Recommendation

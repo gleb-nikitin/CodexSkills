@@ -65,14 +65,15 @@ Exception: direct push to default branch only when the user explicitly requests 
 When the user confirms the PR was merged:
 
 1. Verify the merge happened.
-2. Require a clean working tree.
-3. Run:
+2. Require no staged changes, no tracked unstaged changes, and no unresolved conflicts.
+3. Harmless local untracked files may remain, but real checkout/update conflicts from untracked files still block hygiene.
+4. Run:
 
 ```bash
 /Users/glebnikitin/work/rss/skills/git-publish/scripts/git_hygiene.sh --repo /absolute/path/to/repo --apply
 ```
 
-4. Report final local branch state.
+5. Report final local branch state.
 
 For this workflow, post-merge hygiene is the standard completion step.
 
@@ -150,6 +151,13 @@ After a successful merge and hygiene apply, the expected local result is:
 - local `main` is updated to `origin/main`
 - stale remote refs are pruned
 - local gone feature branches are removed
+
+Hygiene contract:
+- harmless untracked files do not block hygiene by themselves
+- staged changes still block hygiene
+- tracked unstaged changes still block hygiene
+- unresolved conflicts still block hygiene
+- real checkout/update conflicts caused by untracked files still block hygiene safely
 
 Important limitation:
 - remote feature branch deletion on GitHub is not guaranteed by `git_hygiene.sh`
