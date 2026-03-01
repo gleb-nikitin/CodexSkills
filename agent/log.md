@@ -54,3 +54,7 @@
 2026-03-01 01:57 | milestone | git_hygiene spec | drafted focused spec for allowing harmless untracked files during post-merge cleanup and linked it from roadmap
 2026-03-01 02:05 | milestone | git_hygiene spec | closed focused untracked-file hygiene spec after implementation landed and all required validation cases passed
 2026-03-01 02:07 | git-publish skill | push mode=pr branch=codex/git-hygiene-untracked base=main | success
+2026-03-01 19:38 | incident | untracked-directory planning feedback | recorded real-usage gap for partial include/exclude planning of new untracked project directories and updated roadmap/handoff
+2026-03-01 19:41 | milestone | git-publish spec | drafted focused spec for partial include/exclude planning of new untracked project directories without weakening current publish safety
+2026-03-01 19:54 | milestone | git-publish spec | closed untracked-project planning spec after implementation shipped and validation passed
+2026-03-01 19:59 | git-publish skill | push mode=pr branch=codex/git-publish-untracked-project base=main | success

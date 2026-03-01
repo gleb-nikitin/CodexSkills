@@ -120,9 +120,13 @@ Classification rules:
 - tracked modified/deleted/renamed files: included by default
 - `.DS_Store`: `excluded-junk`
 - suspicious untracked files like `.env`, `.env.local`, `.key`, `.pem`, `.p12`, `.pfx`: `excluded-unclear`
+- untracked paths under `.claude/`: `excluded-local`
+- untracked paths under `dist/`: `excluded-build`
 - other untracked files: `excluded-untracked` by default
-- untracked directories: `excluded-untracked` by default; `prepare` reports them without recursive expansion
-- only narrow safe text/code/doc files are auto-included
+- new untracked directories are inspected recursively during `prepare`
+- safe files discovered inside a new untracked directory are reported at file level and can be included without manual pre-staging
+- only narrow safe text/code/doc files are auto-included, including `.gitignore`
+- paths already hidden by Git ignore rules are not surfaced by `prepare`
 
 `prepare` also freezes log context into the plan so the publish-time success marker does not erase PR body context.
 

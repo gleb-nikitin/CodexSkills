@@ -20,11 +20,15 @@
 
 ## Current Repo State
 
-- Current branch: `main`
-- Local `main` is aligned with `origin/main`
-- Current HEAD: `a23df2a`
-- No feature branches should remain after the last cleanup cycle
-- The only expected uncommitted file right now is `agent/log.md` if this handoff was just written and not published yet
+Treat repo state as live, not frozen in this file.
+
+Before acting, verify locally:
+- current branch
+- current HEAD
+- `git status --short`
+- whether any feature branch from the last publish/cleanup cycle still exists
+
+Do not assume this file contains the latest worktree snapshot.
 
 ## Source Of Truth Files
 
@@ -41,6 +45,7 @@ Use these in this order:
 - No standalone marker-only commit
 - PR body keeps pre-publish log context
 - Untracked directories do not crash `prepare`
+- Recursive file-level planning now works for brand new untracked project directories
 - `publish` rejects repo/mode mismatch between CLI and saved plan
 - Legacy one-shot no-op behavior is preserved on empty include sets
 
@@ -49,7 +54,6 @@ Use these in this order:
 - runtime-only enforcement of some policy rules
 - durable plan storage outside `/tmp`
 - automated remote feature branch deletion after merge
-- any non-trivial `git_hygiene` redesign
 
 See `/Users/glebnikitin/work/rss/skills/agent/git-roadmap.md` for the deferred list.
 

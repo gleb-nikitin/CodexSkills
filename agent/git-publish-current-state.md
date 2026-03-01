@@ -88,7 +88,12 @@ Untracked policy:
 - suspicious paths like `.env`, `.pem`, `.key` -> `excluded-unclear`
 - most ordinary untracked files -> `excluded-untracked`
 - only narrow safe text/code/doc files are auto-included
-- untracked directories -> `excluded-untracked` without recursive expansion
+- `.DS_Store` -> `excluded-junk`
+- untracked paths under `.claude/` -> `excluded-local`
+- untracked paths under `dist/` -> `excluded-build`
+- new untracked directories are expanded recursively at file level during `prepare`
+- safe files discovered inside a new untracked directory can be published without manual pre-staging
+- paths already hidden by Git ignore rules are still not surfaced by `prepare`
 
 `prepare` also freezes pre-publish log context into the plan so the publish-time success marker does not erase PR body context.
 
@@ -125,9 +130,9 @@ Current limitation:
 - GitHub auto-delete branch settings or manual deletion may still be needed
 
 Most recent production feedback:
-- publish is now considered good enough in real usage
+- publish is now considered good enough in real usage for tracked change sets
 - hygiene now tolerates harmless local untracked files without weakening tracked/staged safety checks
-- next meaningful improvement should stay outside publish-flow redesign
+- the focused gap for new untracked project directories is now covered by recursive file-level planning and explicit `.claude` / `dist` / junk exclusions
 
 Success marker format:
 - `YYYY-MM-DD HH:MM | git-publish skill | push mode=<pr|no-pr> branch=<name> base=<name> | success`
@@ -142,7 +147,10 @@ Publish output includes this rollback hint:
 
 - plan files are stored in `/tmp/git-publish-plans`
 - safe untracked allowlist is intentionally narrow and heuristic
-- untracked directories are reported and excluded, not expanded for nested review
+- recursive untracked-directory review uses a small explicit exclusion model, not a full generic ignore engine
+- only a few obvious local/build cases are explicitly named today: `.claude`, `dist`, and `.DS_Store`
+- Git-ignored untracked paths are not listed, so `prepare` cannot attach an explicit exclusion reason to content Git already hides
+- manual pre-staging is intentionally rejected by publish, so it cannot be used as a workaround
 - legacy one-shot mode still exists only for compatibility and should not be the default agent path
 - hygiene still stops when untracked files would be overwritten or removed by checkout/update
 - remote feature branch deletion after merge is not yet part of the guaranteed automated result
