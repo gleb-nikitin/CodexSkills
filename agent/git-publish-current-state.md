@@ -201,6 +201,11 @@ Current limitation:
 - GitHub auto-delete branch settings or manual deletion may still be needed
 - exact merged-PR verification still depends on GitHub lookup being available through `gh` auth or the API token fallback
 
+Known next-fix candidate:
+- commit-range `push` is rename-aware and now refuses classifier-conflicting renames instead of silently degrading into deletes or partial publish output
+- `комит` and `пуш` now work with a named point; explicit user naming wins, otherwise the agent derives a meaningful name from recent milestones and reports what name it used
+- future intent: derived point naming should compress that meaning into a short human-usable summary automatically, without requiring the user to rename the point manually
+
 Most recent production feedback:
 - `git-publish` is now considered healthy in real use
 - tracked and normal repo-wide change sets work through the full cycle repeatedly
@@ -208,6 +213,8 @@ Most recent production feedback:
 - remaining issues are polish, not fundamental workflow failures
 - `пуш` is now intended to be self-authorizing, with user review happening on the PR before merge
 - saved local checkpoint commits can now be published through `пуш` without requiring a dirty worktree
+- if the only tracked delta between `комит` and `пуш` is the active tracked project log path, `пуш` now auto-checkpoints that log locally before PR-branch checkout instead of failing on overwrite protection
+- `autocheckpoint: applied` in push output means that local pre-publish checkpoint of the active tracked project log was created and kept only on source-branch local history
 
 Success marker format:
 - `YYYY-MM-DD HH:MM | git-publish skill | push mode=<pr|no-pr> branch=<name> base=<name> | success`

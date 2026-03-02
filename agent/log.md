@@ -80,3 +80,17 @@
 2026-03-02 19:45 | validation | git-publish protocol split | excluded paths blocked in commit-range push, allowed commit-range push passed, worktree push passed, merge-done anchor resolved by marker commit SHA
 2026-03-02 19:46 | milestone | git-publish protocol split | implementation accepted after classifier-safe commit-range push and unique merge-done anchor validation
 2026-03-02 20:02 | git-publish skill | push mode=pr branch=codex/skills-protocol base=main | success
+2026-03-02 20:08 | git-publish skill | merge-confirmed branch=codex/skills-protocol base=main | user confirmed merged; hygiene=applied; remote_branch=gone
+2026-03-02 20:09 | policy | git-publish roadmap | recorded next mandatory update: close current intents first and fix rename-aware commit-range push planning
+2026-03-02 20:13 | policy | git-publish roadmap | recorded future intent that commit and push should use an explicit or derived named point and report it to the user
+2026-03-02 20:14 | milestone | git-publish next update | started spec rewrite for named points, rename-aware commit-range push, merge-done checkpointing, and rebase-inside-push evolution
+2026-03-02 20:17 | milestone | git-publish next update | wrote implementation-ready spec for named points, rename-aware push planning, merge-done preflight checkpointing, and rebase-inside-push evolution
+2026-03-02 20:17 | validation | git-publish next update | tightened spec with explicit CLI surface for named points so implementation does not guess command parsing
+2026-03-02 20:19 | validation | git-publish next update | tightened spec so merge-done preflight checkpoint cannot dirty default-branch sync before hygiene
+2026-03-02 20:25 | milestone | git-publish next update | tightened spec for merge-done temp-branch cleanup, internal rebase local branch outcome, and named-point conflict refusal
+2026-03-02 20:25 | milestone | git-publish next update | spec accepted for implementation after tightening merge-done checkpoint branch lifecycle, internal rebase branch outcome, and named-point conflict rule
+2026-03-02 20:36 | milestone | git-publish next update | implementation accepted after named-point, rename-aware push, and merge-done preflight checkpoint validation
+2026-03-02 20:48 | policy | git-publish roadmap | recorded future intent that autonomous point naming should produce concise summaries without user help
+2026-03-02 21:01 | milestone | git-publish push auto-checkpoint spec | wrote implementation-ready spec for pre-push checkpointing of allowed tracked protocol-management delta
+2026-03-02 22:14 | milestone | git-publish push auto-checkpoint correction | implementation accepted after real saved-work push retest and narrowed log-only autocheckpoint validation
+2026-03-02 22:26 | git-publish skill | push mode=pr branch=codex/git-v4-5 base=main | success

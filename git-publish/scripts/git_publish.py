@@ -60,6 +60,7 @@ CHECKPOINT_COMMIT_MESSAGE = "wip: local checkpoint"
 WORKSPACE_ROOT = Path("/Users/glebnikitin/work").resolve()
 PLAN_DIR = Path(tempfile.gettempdir()) / "git-publish-plans"
 SCRIPT_DIR = Path(__file__).resolve().parent
+CHECKPOINT_BRANCH_PREFIX = "codex/merge-done-checkpoint"
 PUSH_SUCCESS_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2} \| git-publish skill \| "
     r"push mode=(?P<mode>pr|no-pr) branch=(?P<branch>\S+) base=(?P<base>\S+) \| success$"
@@ -120,6 +121,10 @@ def now_ts() -> str:
     return out(["date", "+%Y-%m-%d %H:%M"])
 
 
+def compact_ts() -> str:
+    return out(["date", "+%Y%m%d%H%M%S"])
+
+
 def resolve_project_log_path(project_root: Path) -> Path:
     agent_log = project_root / "agent" / "log.md"
     root_log = project_root / "log.md"
@@ -134,6 +139,50 @@ def append_project_log(log_path: Path, line: str) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as handle:
         handle.write(line.rstrip("\n") + "\n")
+
+
+def recent_meaningful_log_summary(project_root: Path) -> str:
+    log_path = resolve_project_log_path(project_root)
+    if not log_path.exists():
+        return project_root.name
+    lines = [line.strip() for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    for line in reversed(lines):
+        parts = [part.strip() for part in line.split("|", 3)]
+        if len(parts) < 4:
+            continue
+        _, category, action, result = parts
+        if category == "git-publish skill":
+            continue
+        candidate = re.sub(r"\s+", " ", (result or action)).strip(" .")
+        if candidate:
+            return candidate
+    return project_root.name
+
+
+def normalize_point_name(raw: str) -> str:
+    return re.sub(r"\s+", " ", raw.strip()).strip(" .")
+
+
+def slugify_text(raw: str) -> str:
+    return re.sub(r"[^a-z0-9-]+", "-", raw.lower()).strip("-") or "update"
+
+
+def derive_point_name(project_root: Path, explicit: str, included_paths: list[str] | None = None) -> tuple[str, str]:
+    explicit_name = normalize_point_name(explicit)
+    if explicit_name:
+        return (explicit_name, "explicit")
+    candidate = recent_meaningful_log_summary(project_root)
+    if included_paths:
+        top = Path(included_paths[0]).stem or Path(included_paths[0]).name
+        if top and top.lower() not in candidate.lower():
+            candidate = f"{candidate} {top}".strip()
+    return (normalize_point_name(candidate) or "update", "derived")
+
+
+def announce_point_name(point_name: str, source: str) -> str | None:
+    if source != "derived":
+        return None
+    return f"I named this point: {point_name}. In future you can say 'комит {point_name}' or 'пуш {point_name}' explicitly."
 
 
 def is_junk_path(path: str) -> bool:
@@ -166,6 +215,19 @@ def untracked_dir_reason(path: str) -> str | None:
     return None
 
 
+def exclusion_reason_for_new_path(path: str) -> str | None:
+    if is_junk_path(path):
+        return "excluded-junk"
+    if is_unclear_path(path):
+        return "excluded-unclear"
+    dir_reason = untracked_dir_reason(path)
+    if dir_reason:
+        return dir_reason
+    if not is_safe_untracked_path(path):
+        return "excluded-untracked"
+    return None
+
+
 @dataclass(frozen=True)
 class StatusEntry:
     code: str
@@ -192,6 +254,41 @@ def parse_status_z(status_z: str) -> list[StatusEntry]:
             orig_path = parts[index]
             index += 1
         entries.append(StatusEntry(code=code, path=path, orig_path=orig_path))
+    return entries
+
+
+def parse_name_status_z(name_status_z: str) -> list[StatusEntry]:
+    parts = [part for part in name_status_z.split("\0") if part]
+    entries: list[StatusEntry] = []
+    index = 0
+    while index < len(parts):
+        status = parts[index]
+        index += 1
+        if not status:
+            continue
+        kind = status[0]
+        if kind in {"R", "C"}:
+            if index + 1 >= len(parts):
+                break
+            orig_path = parts[index]
+            path = parts[index + 1]
+            index += 2
+            entries.append(StatusEntry(code="R ", path=path, orig_path=orig_path))
+            continue
+        if index >= len(parts):
+            break
+        path = parts[index]
+        index += 1
+        code = {
+            "A": "??",
+            "M": "M ",
+            "D": "D ",
+            "T": "M ",
+            "U": "M ",
+            "X": "M ",
+            "B": "M ",
+        }.get(kind, "M ")
+        entries.append(StatusEntry(code=code, path=path))
     return entries
 
 
@@ -299,6 +396,34 @@ def tracked_path_exists(project_root: Path, rel_path: str) -> bool:
     return git_ok(["git", "ls-files", "--error-unmatch", "--", rel_path], cwd=project_root)
 
 
+def allowed_protocol_management_path(path: str) -> bool:
+    p = Path(path)
+    if p.parts[:1] == ("agent",) and p.suffix == ".md":
+        return True
+    if path == "git-publish/SKILL.md":
+        return True
+    if path in {"git-publish/scripts/git_publish.py", "git-publish/scripts/run"}:
+        return True
+    return False
+
+
+def allowed_merge_done_checkpoint_path(path: str) -> bool:
+    return allowed_protocol_management_path(path)
+
+
+def allowed_push_autocheckpoint_path(project_root: Path, entry: StatusEntry) -> bool:
+    if entry.orig_path:
+        return False
+    if entry.code != " M" and entry.code != "M ":
+        return False
+    rel_log = os.path.relpath(resolve_project_log_path(project_root), project_root)
+    return entry.path == rel_log
+
+
+def tracked_dirty_entries(project_root: Path) -> list[StatusEntry]:
+    return [entry for entry in collect_status_entries(project_root) if entry.code != "??"]
+
+
 def reset_index_paths(project_root: Path, paths: list[str]) -> None:
     unique_paths = sorted(set(paths))
     for group in chunked(unique_paths):
@@ -363,12 +488,45 @@ def collect_log_context(project_root: Path) -> str:
     return "(helper missing)"
 
 
-def commit_range_classifier_snapshot(project_root: Path, boundary_sha: str, changed_paths: list[str]) -> tuple[list[dict], list[dict]]:
+def commit_range_classifier_snapshot(
+    project_root: Path, boundary_sha: str, entries: list[StatusEntry]
+) -> tuple[list[dict], list[dict], list[dict]]:
     synthetic_entries: list[StatusEntry] = []
-    for path in changed_paths:
-        code = "M " if path_exists_at_revision(project_root, boundary_sha, path) else "??"
-        synthetic_entries.append(StatusEntry(code=code, path=path))
-    return classify_entries(project_root, synthetic_entries)
+    rename_conflicts: list[dict] = []
+    for entry in entries:
+        code = "M " if path_exists_at_revision(project_root, boundary_sha, entry.path) else "??"
+        synthetic_entries.append(StatusEntry(code=code, path=entry.path, orig_path=entry.orig_path))
+        if entry.orig_path:
+            source_reason = exclusion_reason_for_new_path(entry.orig_path)
+            dest_reason = exclusion_reason_for_new_path(entry.path)
+            if source_reason or dest_reason:
+                rename_conflicts.append(
+                    {
+                        "path": entry.path,
+                        "orig_path": entry.orig_path,
+                        "reason": source_reason or dest_reason or "excluded-untracked",
+                    }
+                )
+    included, excluded = classify_entries(project_root, synthetic_entries)
+    return included, excluded, rename_conflicts
+
+
+def conflicting_renames_in_commit_range(project_root: Path, commits: list[str]) -> list[dict]:
+    conflicts: list[dict] = []
+    for commit in commits:
+        for entry in rename_entries_for_commit(project_root, commit):
+            source_reason = exclusion_reason_for_new_path(entry.orig_path or "")
+            dest_reason = exclusion_reason_for_new_path(entry.path)
+            if source_reason or dest_reason:
+                conflicts.append(
+                    {
+                        "commit": commit,
+                        "orig_path": entry.orig_path,
+                        "path": entry.path,
+                        "reason": source_reason or dest_reason or "excluded-untracked",
+                    }
+                )
+    return conflicts
 
 
 def build_pr_body(plan: dict, log_context: str) -> str:
@@ -548,6 +706,40 @@ def derive_topic(project_root: Path, topic: str) -> str:
     return re.sub(r"[^a-z0-9-]+", "-", raw.lower()).strip("-") or "update"
 
 
+def resolve_point_naming(
+    project_root: Path,
+    *,
+    explicit_point_name: str,
+    included_paths: list[str] | None,
+    topic_override: str,
+    message_override: str,
+    pr_title_override: str,
+    for_push: bool,
+) -> dict:
+    point_name, point_name_source = derive_point_name(project_root, explicit_point_name, included_paths)
+    if explicit_point_name.strip() and any(value.strip() for value in (topic_override, message_override, pr_title_override)):
+        raise RuntimeError("Point name conflicts with explicit --topic/--message/--pr-title overrides; choose one naming source.")
+    topic_seed = topic_override.strip() or point_name or project_root.name
+    topic = derive_topic(project_root, topic_seed)
+    if for_push:
+        commit_message = message_override.strip() or f"chore: {point_name}"
+        pr_title = pr_title_override.strip() or point_name
+    else:
+        commit_message = f"wip: {point_name}"
+        pr_title = ""
+    if not point_name:
+        point_name = project_root.name
+    return {
+        "point_name": point_name,
+        "point_name_source": point_name_source,
+        "point_notice": announce_point_name(point_name, point_name_source),
+        "topic": topic,
+        "commit_message": commit_message,
+        "checkpoint_commit_message": f"wip: {point_name}",
+        "pr_title": pr_title,
+    }
+
+
 def compute_base_ref(remote: str, base: str) -> tuple[str, str]:
     remote_ref = f"refs/remotes/{remote}/{base}"
     remote_sha = ref_commit(remote_ref)
@@ -677,7 +869,23 @@ def split_z_paths(raw: str) -> list[str]:
     return [part for part in raw.split("\0") if part]
 
 
-def local_publish_range(project_root: Path, remote: str, base: str) -> dict:
+def rename_aware_commit_range_entries(project_root: Path, rev_range: str) -> list[StatusEntry]:
+    raw = out(
+        ["git", "diff", "--name-status", "--find-renames", "--diff-filter=ACDMRTUXB", "-z", rev_range],
+        cwd=project_root,
+    )
+    return parse_name_status_z(raw)
+
+
+def rename_entries_for_commit(project_root: Path, commit: str) -> list[StatusEntry]:
+    raw = out(
+        ["git", "show", "--format=", "--name-status", "--find-renames", "-z", commit],
+        cwd=project_root,
+    )
+    return [entry for entry in parse_name_status_z(raw) if entry.orig_path]
+
+
+def local_publish_range(project_root: Path, remote: str, base: str, *, head_ref: str = "HEAD") -> dict:
     branch = current_branch(project_root)
     default_branch = base.strip() or default_remote_branch(remote)
     if branch == default_branch:
@@ -691,13 +899,11 @@ def local_publish_range(project_root: Path, remote: str, base: str) -> dict:
             boundary_desc = upstream
         else:
             boundary_ref, _ = compute_base_ref(remote, default_branch)
-            boundary_sha = out(["git", "merge-base", "HEAD", boundary_ref], cwd=project_root)
-            boundary_desc = f"merge-base(HEAD, {boundary_ref})"
-    rev_range = f"{boundary_sha}..HEAD"
+            boundary_sha = out(["git", "merge-base", head_ref, boundary_ref], cwd=project_root)
+            boundary_desc = f"merge-base({head_ref}, {boundary_ref})"
+    rev_range = f"{boundary_sha}..{head_ref}"
     commits = [line for line in out(["git", "rev-list", "--reverse", rev_range], cwd=project_root).splitlines() if line.strip()]
-    changed_paths = split_z_paths(
-        out(["git", "diff", "--name-only", "--diff-filter=ACDMRTUXB", "-z", rev_range], cwd=project_root)
-    )
+    entries = rename_aware_commit_range_entries(project_root, rev_range)
     return {
         "source_branch": branch,
         "default_branch": default_branch,
@@ -705,8 +911,8 @@ def local_publish_range(project_root: Path, remote: str, base: str) -> dict:
         "boundary_sha": boundary_sha,
         "boundary_desc": boundary_desc,
         "commits": commits,
-        "changed_paths": changed_paths,
-        "head_sha": out(["git", "rev-parse", "HEAD"], cwd=project_root),
+        "entries": [asdict(entry) for entry in entries],
+        "head_sha": out(["git", "rev-parse", head_ref], cwd=project_root),
     }
 
 
@@ -726,9 +932,12 @@ def build_commit_range_push_plan(
     base_ref, base_sha = compute_base_ref(remote, base)
     log_path = resolve_project_log_path(project_root)
     repo_display = repo_arg or str(project_root)
-    included, excluded = commit_range_classifier_snapshot(
-        project_root, publish_range["boundary_sha"], publish_range["changed_paths"]
+    commit_entries = [StatusEntry(**entry) for entry in publish_range["entries"]]
+    included, excluded, range_rename_conflicts = commit_range_classifier_snapshot(
+        project_root, publish_range["boundary_sha"], commit_entries
     )
+    history_rename_conflicts = conflicting_renames_in_commit_range(project_root, publish_range["commits"])
+    rename_conflicts = range_rename_conflicts + history_rename_conflicts
     return {
         "source_kind": "commit-range",
         "mode": mode,
@@ -746,12 +955,14 @@ def build_commit_range_push_plan(
         "included_paths": [item["path"] for item in included],
         "excluded_paths": [item["path"] for item in excluded],
         "excluded_items": [{"path": item["path"], "reason": item["reason"], "code": item["code"]} for item in excluded],
+        "rename_conflicts": rename_conflicts,
         "log_context": collect_log_context(project_root),
         "head_sha": publish_range["head_sha"],
         "source_branch": publish_range["source_branch"],
         "source_boundary_sha": publish_range["boundary_sha"],
         "source_boundary_desc": publish_range["boundary_desc"],
         "source_commits": publish_range["commits"],
+        "source_entries": publish_range["entries"],
     }
 
 
@@ -790,6 +1001,9 @@ def human_publish_output(result: dict) -> str:
     lines = [
         f"mode: {result['mode']}",
         f"repo: {result['repo_root']}",
+        f"point_name: {result['point_name']}",
+        f"point_name_source: {result['point_name_source']}",
+        f"autocheckpoint: {result['autocheckpoint']}",
         f"base: {result['base']}",
         f"branch: {result['branch']}",
         f"commit_sha: {result['commit_sha']}",
@@ -802,7 +1016,13 @@ def human_publish_output(result: dict) -> str:
         lines.append("  - (none)")
     if result.get("pr_url") is not None:
         lines.append(f"pr_url: {result['pr_url']}")
+    if result.get("autocheckpoint_commit_sha"):
+        lines.append(f"autocheckpoint_commit_sha: {result['autocheckpoint_commit_sha']}")
+    if result.get("normalization_applied"):
+        lines.append("normalization: applied")
     lines.append(f"rollback_hint: {result['rollback_hint']}")
+    if result.get("point_notice"):
+        lines.append(f"note: {result['point_notice']}")
     return "\n".join(lines)
 
 
@@ -812,6 +1032,9 @@ def human_push_noop_output(result: dict) -> str:
         f"status: {result['status']}",
         f"mode: {result['mode']}",
         f"repo: {result['repo_root']}",
+        f"point_name: {result['point_name']}",
+        f"point_name_source: {result['point_name_source']}",
+        f"autocheckpoint: {result['autocheckpoint']}",
         f"base: {result['base']}",
         f"branch: {result['branch']}",
         f"log_path: {result['log_path']}",
@@ -819,6 +1042,8 @@ def human_push_noop_output(result: dict) -> str:
     append_path_block(lines, "included_files:", result["included_paths"])
     append_excluded_block(lines, result["excluded_items"])
     lines.append("note: no publishable local work was found.")
+    if result.get("point_notice"):
+        lines.append(f"note: {result['point_notice']}")
     return "\n".join(lines)
 
 
@@ -845,7 +1070,8 @@ def verify_publish_plan(project_root: Path, plan: dict) -> list[StatusEntry]:
 
 def verify_commit_range_plan(project_root: Path, plan: dict) -> None:
     current_head = out(["git", "rev-parse", "HEAD"], cwd=project_root)
-    if current_head != plan["head_sha"]:
+    expected_head = plan.get("autocheckpoint_commit_sha") or plan["head_sha"]
+    if current_head != expected_head:
         raise RuntimeError("HEAD changed after push preparation; rerun push.")
     _, current_base_sha = compute_base_ref(plan["remote"], plan["base"])
     if current_base_sha != plan["base_sha"]:
@@ -882,6 +1108,15 @@ def realign_default_branch_after_commit_range_publish(project_root: Path, plan: 
     run(["git", "branch", "--quiet", "-f", plan["base"], plan["base_ref"]], cwd=project_root)
 
 
+def restore_source_branch_after_normalized_push(project_root: Path, plan: dict) -> None:
+    if not plan.get("normalization_applied"):
+        return
+    source_branch = plan.get("source_branch")
+    if not source_branch or source_branch == plan["base"]:
+        return
+    run(["git", "checkout", "--quiet", source_branch], cwd=project_root, capture_output=False)
+
+
 def append_path_block(lines: list[str], label: str, paths: list[str]) -> None:
     lines.append(label)
     if paths:
@@ -898,13 +1133,23 @@ def append_excluded_block(lines: list[str], excluded_items: list[dict]) -> None:
         lines.append("  - (none)")
 
 
-def commit_preview_output(project_root: Path, branch: str, included_paths: list[str], excluded_items: list[dict]) -> str:
+def commit_preview_output(
+    project_root: Path,
+    branch: str,
+    point_name: str,
+    point_name_source: str,
+    included_paths: list[str],
+    excluded_items: list[dict],
+    commit_message: str,
+) -> str:
     lines = [
         "preview:",
         "  action: commit",
         f"  repo: {project_root}",
         f"  branch: {branch}",
-        f"  commit_message: {CHECKPOINT_COMMIT_MESSAGE}",
+        f"  point_name: {point_name}",
+        f"  point_name_source: {point_name_source}",
+        f"  commit_message: {commit_message}",
         "  included_files:",
     ]
     if included_paths:
@@ -925,12 +1170,16 @@ def human_commit_output(result: dict) -> str:
         f"status: {result['status']}",
         f"repo: {result['repo_root']}",
         f"branch: {result['branch']}",
+        f"point_name: {result['point_name']}",
+        f"point_name_source: {result['point_name_source']}",
         f"commit_message: {result['commit_message']}",
     ]
     if result.get("commit_sha"):
         lines.append(f"commit_sha: {result['commit_sha']}")
     append_path_block(lines, "included_files:", result["included_paths"])
     append_excluded_block(lines, result["excluded_items"])
+    if result.get("point_notice"):
+        lines.append(f"note: {result['point_notice']}")
     return "\n".join(lines)
 
 
@@ -1008,6 +1257,10 @@ def local_rewrite_plan(project_root: Path, remote: str, base_arg: str) -> dict:
     }
 
 
+def normalization_eligible(rewrite: dict, source_branch: str, base: str) -> bool:
+    return source_branch != base and len(rewrite["rewrite_commits"]) >= 2
+
+
 def human_rebase_output(result: dict) -> str:
     lines = [
         "action: rebase",
@@ -1025,6 +1278,60 @@ def human_rebase_output(result: dict) -> str:
     if result.get("new_head"):
         lines.append(f"new_head: {result['new_head']}")
     return "\n".join(lines)
+
+
+def apply_rewrite_plan(project_root: Path, rewrite: dict) -> dict:
+    commits = rewrite["rewrite_commits"]
+    newest_message = normalize_rebase_message(load_commit_message(commits[-1], project_root)) if commits else ""
+    strategy = "reword" if len(commits) == 1 else "squash"
+    result = {
+        "branch": rewrite["branch"],
+        "default_branch": rewrite["default_branch"],
+        "boundary": rewrite["boundary_desc"],
+        "rewrite_strategy": strategy,
+        "rewrite_count": len(commits),
+        "commit_message": newest_message.rstrip("\n"),
+        "old_head": None,
+        "new_head": None,
+    }
+    if not commits:
+        return result
+    old_head = out(["git", "rev-parse", "HEAD"], cwd=project_root)
+    result["old_head"] = old_head
+    try:
+        if len(commits) == 1:
+            git_commit_with_message(project_root, newest_message, amend=True)
+        else:
+            soft_reset_head(project_root, rewrite["boundary_sha"])
+            git_commit_with_message(project_root, newest_message)
+    except Exception as exc:
+        soft_reset_head(project_root, old_head)
+        raise RuntimeError(f"rebase failed and restored original HEAD {old_head[:12]}: {exc}") from exc
+    result["new_head"] = out(["git", "rev-parse", "HEAD"], cwd=project_root)
+    return result
+
+
+def push_autocheckpoint_if_needed(
+    project_root: Path,
+    *,
+    naming: dict,
+) -> tuple[str | None, str | None]:
+    entries = tracked_dirty_entries(project_root)
+    if not entries:
+        return (None, None)
+    if any(entry.code in CONFLICT_CODES for entry in entries):
+        raise RuntimeError("push requires all merge conflicts to be resolved first.")
+    if len(entries) != 1 or not allowed_push_autocheckpoint_path(project_root, entries[0]):
+        raise RuntimeError(
+            "push found tracked changes outside the allowed protocol-management scope; only the active tracked project log may be auto-checkpointed before publish."
+        )
+    head_before = out(["git", "rev-parse", "HEAD"], cwd=project_root)
+    stage_explicit(entries)
+    if staged_is_empty():
+        raise RuntimeError("push auto-checkpoint staged nothing.")
+    run(["git", "commit", "--quiet", "-m", naming["checkpoint_commit_message"]], cwd=project_root, capture_output=False)
+    checkpoint_sha = out(["git", "rev-parse", "HEAD"], cwd=project_root)
+    return (checkpoint_sha, head_before)
 
 
 def latest_publish_anchor(project_root: Path) -> dict:
@@ -1183,6 +1490,55 @@ def remote_branch_status_after_cleanup(project_root: Path, remote: str, branch: 
     return remote_branch_state(project_root, remote, branch)
 
 
+def unique_checkpoint_branch(project_root: Path) -> str:
+    attempt = 0
+    while True:
+        suffix = compact_ts() if attempt == 0 else f"{compact_ts()}-{attempt}"
+        candidate = f"{CHECKPOINT_BRANCH_PREFIX}/{suffix}"
+        if not ref_commit(f"refs/heads/{candidate}"):
+            return candidate
+        attempt += 1
+
+
+def merge_done_preflight_checkpoint(
+    project_root: Path,
+    *,
+    branch_before: str,
+    default_branch: str,
+    explicit_point_name: str,
+) -> tuple[str | None, str | None, str | None, str | None]:
+    entries = tracked_dirty_entries(project_root)
+    if not entries:
+        return (None, None, None, None)
+    if any(entry.code in CONFLICT_CODES for entry in entries):
+        raise RuntimeError("merge-done requires all merge conflicts to be resolved first.")
+    paths = sorted({entry.path for entry in entries})
+    if not all(allowed_merge_done_checkpoint_path(path) for path in paths):
+        raise RuntimeError("merge-done found tracked changes outside the allowed protocol-management scope.")
+    naming = resolve_point_naming(
+        project_root,
+        explicit_point_name=explicit_point_name,
+        included_paths=paths,
+        topic_override="",
+        message_override="",
+        pr_title_override="",
+        for_push=False,
+    )
+    checkpoint_message = naming["commit_message"]
+    checkpoint_branch: str | None = None
+    if branch_before == default_branch:
+        checkpoint_branch = unique_checkpoint_branch(project_root)
+        run(["git", "checkout", "--quiet", "-b", checkpoint_branch], cwd=project_root, capture_output=False)
+    stage_explicit(entries)
+    if staged_is_empty():
+        raise RuntimeError("merge-done preflight checkpoint staged nothing.")
+    run(["git", "commit", "--quiet", "-m", checkpoint_message], cwd=project_root, capture_output=False)
+    checkpoint_sha = out(["git", "rev-parse", "HEAD"], cwd=project_root)
+    if checkpoint_branch:
+        run(["git", "checkout", "--quiet", default_branch], cwd=project_root, capture_output=False)
+    return (checkpoint_sha, checkpoint_branch, naming["point_name"], naming["point_notice"])
+
+
 def human_merge_done_output(result: dict) -> str:
     lines = [
         "action: merge-done",
@@ -1196,9 +1552,16 @@ def human_merge_done_output(result: dict) -> str:
         f"remote_branch: {result['remote_branch']}",
         f"tracked_delta: {result['tracked_delta']}",
     ]
+    if result.get("checkpoint_commit_sha"):
+        lines.append(f"checkpoint_commit_sha: {result['checkpoint_commit_sha']}")
+    if result.get("point_name"):
+        lines.append(f"point_name: {result['point_name']}")
+        lines.append(f"point_name_source: {result['point_name_source']}")
     if result.get("pr_url"):
         lines.append(f"pr_url: {result['pr_url']}")
     lines.append("note: merge-confirmed log line appended and intentionally left as a tracked worktree delta.")
+    if result.get("point_notice"):
+        lines.append(f"note: {result['point_notice']}")
     return "\n".join(lines)
 
 
@@ -1215,6 +1578,11 @@ def publish(plan: dict, json_output: bool) -> int:
             raise RuntimeError("push no-pr does not support publish-from-local-commits on a clean worktree; rerun with PR mode.")
         if not plan.get("source_commits"):
             raise RuntimeError("Prepared push contains no local unpublished commits; nothing to publish.")
+        if plan.get("rename_conflicts"):
+            conflict = plan["rename_conflicts"][0]
+            raise RuntimeError(
+                f"push found a classifier-conflicting rename: {conflict['orig_path']} -> {conflict['path']} ({conflict['reason']})."
+            )
         ensure_branch_from_base(plan["branch"], plan["base_ref"], plan["remote"], plan["base_sha"])
         cherry_pick_no_commit(project_root, plan["source_commits"])
         restore_paths_from_head(project_root, plan.get("excluded_paths", []))
@@ -1228,6 +1596,7 @@ def publish(plan: dict, json_output: bool) -> int:
         commit_sha = out(["git", "rev-parse", "HEAD"], cwd=project_root)
         run(["git", "push", "--quiet", "-u", plan["remote"], plan["branch"]], capture_output=False)
         realign_default_branch_after_commit_range_publish(project_root, plan)
+        restore_source_branch_after_normalized_push(project_root, plan)
     else:
         current_entries = verify_publish_plan(project_root, plan)
         included_entries = [entry for entry in current_entries if entry.path in set(plan["included_paths"])]
@@ -1280,6 +1649,12 @@ def publish(plan: dict, json_output: bool) -> int:
         "mode": plan["mode"],
         "repo": plan["repo"],
         "repo_root": plan["repo_root"],
+        "point_name": plan["point_name"],
+        "point_name_source": plan["point_name_source"],
+        "point_notice": plan.get("point_notice"),
+        "autocheckpoint": plan.get("autocheckpoint", "not-needed"),
+        "autocheckpoint_commit_sha": plan.get("autocheckpoint_commit_sha"),
+        "normalization_applied": plan.get("normalization_applied", False),
         "base": plan["base"],
         "branch": plan["branch"],
         "commit_sha": commit_sha,
@@ -1299,41 +1674,140 @@ def push_action(args: argparse.Namespace, json_output: bool) -> int:
     project_root = resolve_requested_repo_root(args.repo)
     os.chdir(project_root)
     require_no_conflicts(project_root, "push")
+    require_clean_index(project_root, "push")
 
     remote = args.remote
     base = args.base.strip() or default_remote_branch(remote)
-    topic = derive_topic(project_root, args.topic)
+    initial_entries = tracked_dirty_entries(project_root)
+    naming_seed = resolve_point_naming(
+        project_root,
+        explicit_point_name=args.point_name,
+        included_paths=[entry.path for entry in initial_entries] if initial_entries else None,
+        topic_override=args.topic,
+        message_override=args.message,
+        pr_title_override=args.pr_title,
+        for_push=True,
+    )
+    autocheckpoint_commit_sha, publish_head_ref = push_autocheckpoint_if_needed(project_root, naming=naming_seed)
+    if publish_head_ref is None:
+        publish_head_ref = "HEAD"
+    autocheckpoint = "applied" if autocheckpoint_commit_sha else "not-needed"
     worktree_plan = build_prepare_plan(
         project_root=project_root,
         repo_arg=args.repo.strip(),
         mode=args.mode,
-        topic=topic,
+        topic=naming_seed["topic"],
         remote=remote,
         base=base,
-        commit_message=args.message.strip() or default_commit_message(topic),
-        pr_title=args.pr_title.strip() or default_pr_title(topic),
+        commit_message=naming_seed["commit_message"],
+        pr_title=naming_seed["pr_title"],
     )
     plan = worktree_plan
-    if not plan["included_paths"]:
-        publish_range = local_publish_range(project_root, remote, base)
+    normalization_applied = False
+    publish_range = local_publish_range(project_root, remote, base, head_ref=publish_head_ref)
+    if publish_head_ref != "HEAD" and publish_range["commits"]:
+        naming = resolve_point_naming(
+            project_root,
+            explicit_point_name=args.point_name,
+            included_paths=[entry["path"] for entry in publish_range["entries"]],
+            topic_override=args.topic,
+            message_override=args.message,
+            pr_title_override=args.pr_title,
+            for_push=True,
+        )
+        plan = build_commit_range_push_plan(
+            project_root=project_root,
+            repo_arg=args.repo.strip(),
+            mode=args.mode,
+            topic=naming["topic"],
+            remote=remote,
+            base=base,
+            commit_message=naming["commit_message"],
+            pr_title=naming["pr_title"],
+            publish_range=publish_range,
+        )
+        plan.update(
+            {
+                "point_name": naming["point_name"],
+                "point_name_source": naming["point_name_source"],
+                "point_notice": naming["point_notice"],
+                "normalization_applied": False,
+                "autocheckpoint": autocheckpoint,
+                "autocheckpoint_commit_sha": autocheckpoint_commit_sha,
+            }
+        )
+    elif not plan["included_paths"]:
+        publish_range = local_publish_range(project_root, remote, base, head_ref=publish_head_ref)
+        rewrite = None
+        if publish_head_ref == "HEAD" and publish_range["source_branch"] != base:
+            rewrite = local_rewrite_plan(project_root, remote, base)
+        if rewrite and normalization_eligible(rewrite, publish_range["source_branch"], base):
+            apply_rewrite_plan(project_root, rewrite)
+            normalization_applied = True
+            publish_range = local_publish_range(project_root, remote, base, head_ref="HEAD")
         if publish_range["commits"]:
+            naming = resolve_point_naming(
+                project_root,
+                explicit_point_name=args.point_name,
+                included_paths=[entry["path"] for entry in publish_range["entries"]],
+                topic_override=args.topic,
+                message_override=args.message,
+                pr_title_override=args.pr_title,
+                for_push=True,
+            )
             plan = build_commit_range_push_plan(
                 project_root=project_root,
                 repo_arg=args.repo.strip(),
                 mode=args.mode,
-                topic=topic,
+                topic=naming["topic"],
                 remote=remote,
                 base=base,
-                commit_message=args.message.strip() or default_commit_message(topic),
-                pr_title=args.pr_title.strip() or default_pr_title(topic),
+                commit_message=naming["commit_message"],
+                pr_title=naming["pr_title"],
                 publish_range=publish_range,
             )
+            plan.update(
+                {
+                    "point_name": naming["point_name"],
+                    "point_name_source": naming["point_name_source"],
+                    "point_notice": naming["point_notice"],
+                    "normalization_applied": normalization_applied,
+                    "autocheckpoint": autocheckpoint,
+                    "autocheckpoint_commit_sha": autocheckpoint_commit_sha,
+                }
+            )
+    else:
+        plan = build_prepare_plan(
+            project_root=project_root,
+            repo_arg=args.repo.strip(),
+            mode=args.mode,
+            topic=naming_seed["topic"],
+            remote=remote,
+            base=base,
+            commit_message=naming_seed["commit_message"],
+            pr_title=naming_seed["pr_title"],
+        )
+        plan.update(
+            {
+                "point_name": naming_seed["point_name"],
+                "point_name_source": naming_seed["point_name_source"],
+                "point_notice": naming_seed["point_notice"],
+                "normalization_applied": False,
+                "autocheckpoint": autocheckpoint,
+                "autocheckpoint_commit_sha": autocheckpoint_commit_sha,
+            }
+        )
     if not plan["included_paths"]:
         result = {
             "action": "push",
             "status": "no-op",
             "mode": worktree_plan["mode"],
             "repo_root": worktree_plan["repo_root"],
+            "point_name": naming_seed["point_name"],
+            "point_name_source": naming_seed["point_name_source"],
+            "point_notice": naming_seed["point_notice"],
+            "autocheckpoint": autocheckpoint,
+            "autocheckpoint_commit_sha": autocheckpoint_commit_sha,
             "base": worktree_plan["base"],
             "branch": worktree_plan["branch"],
             "log_path": worktree_plan["log_path"],
@@ -1359,7 +1833,24 @@ def commit_checkpoint(args: argparse.Namespace, json_output: bool) -> int:
     entries, included, excluded = classifier_snapshot(project_root)
     branch = current_branch(project_root)
     included_paths = [item["path"] for item in included]
-    preview = commit_preview_output(project_root, branch, included_paths, excluded)
+    naming = resolve_point_naming(
+        project_root,
+        explicit_point_name=args.point_name,
+        included_paths=included_paths,
+        topic_override="",
+        message_override="",
+        pr_title_override="",
+        for_push=False,
+    )
+    preview = commit_preview_output(
+        project_root,
+        branch,
+        naming["point_name"],
+        naming["point_name_source"],
+        included_paths,
+        excluded,
+        naming["commit_message"],
+    )
     print(preview, file=sys.stderr if json_output else sys.stdout, flush=True)
 
     result = {
@@ -1367,7 +1858,10 @@ def commit_checkpoint(args: argparse.Namespace, json_output: bool) -> int:
         "status": "no-op" if not included_paths else "success",
         "repo_root": str(project_root),
         "branch": branch,
-        "commit_message": CHECKPOINT_COMMIT_MESSAGE,
+        "point_name": naming["point_name"],
+        "point_name_source": naming["point_name_source"],
+        "point_notice": naming["point_notice"],
+        "commit_message": naming["commit_message"],
         "commit_sha": None,
         "included_paths": included_paths,
         "excluded_items": [{"path": item["path"], "reason": item["reason"], "code": item["code"]} for item in excluded],
@@ -1388,7 +1882,7 @@ def commit_checkpoint(args: argparse.Namespace, json_output: bool) -> int:
         staged = True
         if staged_is_empty():
             raise RuntimeError("commit staged nothing after applying the classifier include set.")
-        run(["git", "commit", "--quiet", "-m", CHECKPOINT_COMMIT_MESSAGE], cwd=project_root, capture_output=False)
+        run(["git", "commit", "--quiet", "-m", naming["commit_message"]], cwd=project_root, capture_output=False)
         committed = True
     except Exception:
         if staged and not committed:
@@ -1412,42 +1906,18 @@ def rebase_local_history(args: argparse.Namespace, json_output: bool) -> int:
     require_no_tracked_unstaged(project_root, "rebase")
 
     rewrite = local_rewrite_plan(project_root, args.remote, args.base)
-    commits = rewrite["rewrite_commits"]
-    newest_message = normalize_rebase_message(load_commit_message(commits[-1], project_root)) if commits else ""
-    strategy = "reword" if len(commits) == 1 else "squash"
     result = {
         "action": "rebase",
-        "status": "no-op" if not commits else "success",
+        "status": "no-op" if not rewrite["rewrite_commits"] else "success",
         "repo_root": str(project_root),
-        "branch": rewrite["branch"],
-        "default_branch": rewrite["default_branch"],
-        "boundary": rewrite["boundary_desc"],
-        "rewrite_strategy": strategy,
-        "rewrite_count": len(commits),
-        "commit_message": newest_message.rstrip("\n"),
-        "old_head": None,
-        "new_head": None,
+        **apply_rewrite_plan(project_root, rewrite),
     }
-    if not commits:
+    if not rewrite["rewrite_commits"]:
         if json_output:
             print(json.dumps(result, indent=2, sort_keys=True))
         else:
             print(human_rebase_output(result))
         return 0
-
-    old_head = out(["git", "rev-parse", "HEAD"], cwd=project_root)
-    result["old_head"] = old_head
-    try:
-        if len(commits) == 1:
-            git_commit_with_message(project_root, newest_message, amend=True)
-        else:
-            soft_reset_head(project_root, rewrite["boundary_sha"])
-            git_commit_with_message(project_root, newest_message)
-    except Exception as exc:
-        soft_reset_head(project_root, old_head)
-        raise RuntimeError(f"rebase failed and restored original HEAD {old_head[:12]}: {exc}") from exc
-
-    result["new_head"] = out(["git", "rev-parse", "HEAD"], cwd=project_root)
     if json_output:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
@@ -1475,14 +1945,25 @@ def merge_done(args: argparse.Namespace, json_output: bool) -> int:
 
     require_no_conflicts(project_root, "merge-done")
     require_clean_index(project_root, "merge-done")
+    checkpoint_commit_sha, checkpoint_branch, point_name, point_notice = merge_done_preflight_checkpoint(
+        project_root,
+        branch_before=branch_before,
+        default_branch=default_branch,
+        explicit_point_name=args.point_name,
+    )
+    require_clean_index(project_root, "merge-done")
     require_no_tracked_unstaged(project_root, "merge-done")
 
     run_hygiene(project_root, args.remote)
     ensure_default_branch_state(project_root, args.remote, default_branch)
     if anchor["branch"] != default_branch:
         delete_local_branch(project_root, anchor["branch"])
+    if checkpoint_branch:
+        delete_local_branch(project_root, checkpoint_branch)
     if ref_commit(f"refs/heads/{anchor['branch']}"):
         raise RuntimeError(f"Local branch '{anchor['branch']}' still exists after hygiene.")
+    if checkpoint_branch and ref_commit(f"refs/heads/{checkpoint_branch}"):
+        raise RuntimeError(f"Temporary checkpoint branch '{checkpoint_branch}' still exists after merge-done.")
     remote_status = remote_branch_status_after_cleanup(project_root, args.remote, anchor["branch"])
 
     if not tracked_path_exists(project_root, anchor["log_rel_path"]):
@@ -1513,6 +1994,10 @@ def merge_done(args: argparse.Namespace, json_output: bool) -> int:
         "remote_branch": remote_status,
         "tracked_delta": anchor["log_rel_path"],
         "pr_url": pr.get("url"),
+        "checkpoint_commit_sha": checkpoint_commit_sha,
+        "point_name": point_name,
+        "point_name_source": "explicit" if args.point_name.strip() else ("derived" if point_name else None),
+        "point_notice": point_notice,
     }
     if json_output:
         print(json.dumps(result, indent=2, sort_keys=True))
@@ -1564,6 +2049,7 @@ def main() -> int:
     parser.add_argument("--message", default="")
     parser.add_argument("--pr-title", default="")
     parser.add_argument("--plan", default="")
+    parser.add_argument("--point-name", default="")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 

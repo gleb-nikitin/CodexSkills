@@ -35,7 +35,9 @@ Do not infer one protocol from another.
 - Local only.
 - Refuse on detached HEAD, staged index content, or unresolved conflicts.
 - Run the current classifier without mutation.
-- Show included files, excluded files with reasons, and the fixed message `wip: local checkpoint`.
+- Resolve a named point first.
+- If the user did not name the point, derive it from recent milestones / meaningful changes and report the chosen name.
+- Show included files, excluded files with reasons, point name, and final message `wip: <point-name>`.
 - Stage exactly the included paths and create exactly one local commit.
 - If nothing is includable, return a clean no-op.
 
@@ -57,8 +59,14 @@ Do not infer one protocol from another.
 - Default flow is internal `prepare -> publish -> report`.
 - User review happens on the created PR before merge, not as an extra approval round after `prepare`.
 - Direct push to the default branch remains allowed only when the user explicitly requests `пуш без пр` / `push no pr` / `push without pr`.
+- Resolve a named point first. Explicit user naming wins; if no point name is provided, derive one from recent milestones / meaningful changes and report it.
+- If a free-text point name conflicts with `--topic`, `--message`, or `--pr-title`, refuse clearly instead of guessing.
+- If the only tracked delta before publish is the active tracked project log path, `пуш` auto-checkpoints that log locally on the current branch before PR-branch checkout instead of failing.
 - `пуш` can publish saved local work from local unpublished commits even when the worktree is clean.
 - In that clean-worktree case, `пуш` internally derives the publish scope from the local unpublished commit range on the current branch, re-applies the exact classifier to those changed paths, and still creates one normal PR commit.
+- `autocheckpoint: applied` means `пуш` created a local checkpoint commit for the active tracked project log before continuing; that checkpoint stays local and must not pollute the PR branch.
+- Commit-range planning is rename-aware. If a rename crosses classifier boundaries, `пуш` must refuse instead of silently degrading into a delete or partial publish.
+- On a non-default branch, `пуш` may run internal normalization of local unpublished history before publishing. If it does, output must report that normalization ran and the local source branch remains in the normalized state after success.
 
 ### `мердж дан`
 
@@ -67,8 +75,10 @@ Do not infer one protocol from another.
 - Refuse if the current branch before cleanup is neither the default branch nor `anchor_branch`.
 - Verify exactly one matching GitHub PR for `head=anchor_branch`, `base=anchor_base`, and the resolved publish commit SHA, and require that PR to be merged.
 - Require no staged changes, no tracked unstaged changes, and no unresolved conflicts before hygiene.
+- If only tracked protocol-management delta is present under `agent/*.md`, `git-publish/SKILL.md`, `git-publish/scripts/git_publish.py`, or `git-publish/scripts/run`, `мердж дан` may create one safe local preflight checkpoint commit first instead of refusing immediately.
 - Run the existing hygiene flow, ensure the default branch is current and synced, and ensure the local anchor branch is gone.
 - Remote branch deletion is best-effort only.
+- If that preflight checkpoint starts from `main`, any temporary checkpoint branch created for it must be removed locally before successful completion.
 - Append exactly one line:
 
 ```text
@@ -84,6 +94,7 @@ Local checkpoint:
 ```bash
 /Users/glebnikitin/work/rss/skills/git-publish/scripts/run commit --repo /absolute/path/to/repo
 /Users/glebnikitin/work/rss/skills/git-publish/scripts/run комит --repo /absolute/path/to/repo
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run комит --repo /absolute/path/to/repo close spec 6
 ```
 
 Local history cleanup:
@@ -97,6 +108,7 @@ Push protocol:
 
 ```bash
 /Users/glebnikitin/work/rss/skills/git-publish/scripts/run push pr --repo /absolute/path/to/repo --topic <slug>
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run push pr --repo /absolute/path/to/repo close spec 6
 ```
 
 Optional inspection/debug entrypoints:
@@ -119,6 +131,7 @@ Post-merge completion:
 ```bash
 /Users/glebnikitin/work/rss/skills/git-publish/scripts/run merge-done --repo /absolute/path/to/repo
 /Users/glebnikitin/work/rss/skills/git-publish/scripts/run мердж дан --repo /absolute/path/to/repo
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run мердж дан --repo /absolute/path/to/repo finalize protocol split
 ```
 
 Legacy one-shot compatibility (kept temporarily):
@@ -181,6 +194,8 @@ Self-authorizing `push` compatibility:
   - current publishable worktree changes
   - or saved local unpublished commits from the current branch when the worktree is already clean
 - in that clean-worktree local-commit path, excluded files from the exact classifier must still stay out of the PR commit
+- rename-aware commit-range planning must refuse classifier-conflicting renames instead of publishing a degraded result
+- if internal normalization runs on a non-default source branch, that local source branch remains in the normalized state after publish succeeds
 - no extra approval round is required after that internal preparation
 
 ## After Merge Expectations

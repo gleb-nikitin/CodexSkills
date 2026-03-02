@@ -5,10 +5,10 @@ usage() {
   echo "Usage:" >&2
   echo "  run prepare <pr|no-pr> --repo <path> [--topic <slug>] [--json]" >&2
   echo "  run publish <pr|no-pr> --repo <path> --plan <file-or-token> [--json]" >&2
-  echo "  run push [<pr|no-pr>] --repo <path> [--topic <slug>] [--json]    # self-authorizing publish to PR/no-pr" >&2
-  echo "  run commit --repo <path> [--json]" >&2
+  echo "  run push [<pr|no-pr>] --repo <path> [--topic <slug>] [--json] [point name...]    # self-authorizing publish to PR/no-pr" >&2
+  echo "  run commit --repo <path> [--json] [point name...]" >&2
   echo "  run rebase --repo <path> [--remote <name>] [--base <branch>] [--json]" >&2
-  echo "  run merge-done --repo <path> [--remote <name>] [--base <branch>] [--json]" >&2
+  echo "  run merge-done --repo <path> [--remote <name>] [--base <branch>] [--json] [point name...]" >&2
   echo "Aliases:" >&2
   echo "  commit: 'комит'" >&2
   echo "  rebase: 'ребейз'" >&2
@@ -96,6 +96,7 @@ REMOTE=""
 BASE=""
 MESSAGE=""
 PR_TITLE=""
+POINT_NAME_PARTS=()
 DRY_RUN=0
 JSON=0
 
@@ -142,12 +143,16 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     *)
-      echo "Unknown arg: $1" >&2
-      usage
-      exit 2
+      POINT_NAME_PARTS+=("$1")
+      shift
       ;;
   esac
 done
+
+POINT_NAME=""
+if [[ ${#POINT_NAME_PARTS[@]} -gt 0 ]]; then
+  POINT_NAME="${POINT_NAME_PARTS[*]}"
+fi
 
 if [[ "$ACTION" == "prepare" || "$ACTION" == "publish" || "$ACTION" == "legacy" ]]; then
   if [[ "$MODE" != "pr" && "$MODE" != "no-pr" ]]; then
@@ -175,7 +180,11 @@ if [[ "$JSON" -eq 1 ]]; then
 fi
 
 if [[ "$ACTION" == "commit" ]]; then
-  exec python3 "$SCRIPT_DIR/git_publish.py" --action commit "${COMMON_ARGS[@]}"
+  COMMIT_ARGS=(--action commit "${COMMON_ARGS[@]}")
+  if [[ -n "$POINT_NAME" ]]; then
+    COMMIT_ARGS+=(--point-name "$POINT_NAME")
+  fi
+  exec python3 "$SCRIPT_DIR/git_publish.py" "${COMMIT_ARGS[@]}"
 fi
 
 if [[ "$ACTION" == "rebase" ]]; then
@@ -183,7 +192,11 @@ if [[ "$ACTION" == "rebase" ]]; then
 fi
 
 if [[ "$ACTION" == "merge-done" ]]; then
-  exec python3 "$SCRIPT_DIR/git_publish.py" --action merge-done "${COMMON_ARGS[@]}"
+  MERGE_ARGS=(--action merge-done "${COMMON_ARGS[@]}")
+  if [[ -n "$POINT_NAME" ]]; then
+    MERGE_ARGS+=(--point-name "$POINT_NAME")
+  fi
+  exec python3 "$SCRIPT_DIR/git_publish.py" "${MERGE_ARGS[@]}"
 fi
 
 if [[ "$ACTION" == "push" ]]; then
@@ -196,6 +209,9 @@ if [[ "$ACTION" == "push" ]]; then
   fi
   if [[ -n "$PR_TITLE" ]]; then
     PUSH_ARGS+=(--pr-title "$PR_TITLE")
+  fi
+  if [[ -n "$POINT_NAME" ]]; then
+    PUSH_ARGS+=(--point-name "$POINT_NAME")
   fi
   exec python3 "$SCRIPT_DIR/git_publish.py" "${PUSH_ARGS[@]}"
 fi
