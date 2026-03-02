@@ -1,99 +1,127 @@
 ---
 name: git-publish
-description: Deterministic Git publish workflow for solo repos in /Users/glebnikitin/work. Use when the user says 'пуш', 'git push', 'push', 'пуш без пр', 'push no pr', or 'push without pr'. Default flow is prepare -> review -> publish with one normal commit.
+description: Deterministic Git protocol split for solo repos in /Users/glebnikitin/work. Use when the user says 'комит', 'ребейз', 'пуш', 'git push', 'push', 'пуш без пр', 'push no pr', 'push without pr', or 'мердж дан'. Push is self-authorizing and internally runs prepare -> publish -> report; commit and rebase stay local-only; merge-done is verified post-merge cleanup plus tracked confirmation logging.
 ---
 
 # git-publish
 
 ## Intent
 
-Create a low-noise publish flow that agents can use safely:
-- review what will be committed
-- create exactly one normal commit
-- create a normal PR
-- keep rollback guidance obvious
+Keep four explicit protocols separate:
+- `комит`: one local checkpoint commit from the exact `prepare` classifier include set
+- `ребейз`: deterministic cleanup of local unpublished history only
+- `пуш`: self-authorizing `prepare -> publish -> report`
+- `мердж дан`: verify the merged PR for the last PR-mode push, run hygiene, append one `merge-confirmed ...` project-log line
 
-Default behavior: **prepare -> review -> PR publish**.
-
-Exception: direct push to default branch only when the user explicitly requests `пуш без пр` / `push no pr` / `push without pr`.
+Do not infer one protocol from another.
 
 ## Core Rules
 
 - Always pass `--repo /absolute/path/to/repo`.
 - Never use workspace root `/Users/glebnikitin/work` as `--repo`.
-- Always run `prepare` first.
-- After `prepare`, show included/excluded files and wait for explicit user approval before `publish`.
-- `prepare` is read-only.
-- `publish` is the only mutating step.
-- One publish action creates exactly one normal commit.
-- No standalone `chore: git-publish marker` commit is allowed.
-- Success marker is written into the same main publish commit.
-- PR URL is returned in output, not written into the committed success marker.
+- All mutating protocols refuse unresolved conflicts.
+- `комит` and `пуш` must reuse the exact current `prepare` classifier.
+- Manual pre-staging is never inherited. Clean-index refusal is mandatory where the protocol requires it.
 - Never use `git add -A` or `git add .`.
 - Stage explicit paths only.
-- PR publish via this skill is allowed autonomously after user approval of the prepared plan.
-- Direct push to the default branch is allowed only when the user explicitly requests `пуш без пр` / `push no pr` / `push without pr`.
+- `пуш` is the only protocol allowed to publish, push, or open PRs.
+- `комит` and `ребейз` never write tracked project-log lines.
+- `мердж дан` appends a tracked `merge-confirmed ...` line after hygiene and intentionally leaves that one tracked log delta unstaged.
 
-## Recommended Agent Flow
+## Protocol Map
 
-1. Run `prepare`.
-2. Show the user:
-   - included files
-   - excluded files and reasons
-   - base branch
-   - target branch
-   - commit message
-   - PR title
-3. After approval, run `publish` with the returned `plan_path`.
-4. Return:
-   - commit SHA
-   - PR URL
-   - rollback hint
+### `комит`
 
-## Standard Workflow
+- Local only.
+- Refuse on detached HEAD, staged index content, or unresolved conflicts.
+- Run the current classifier without mutation.
+- Show included files, excluded files with reasons, and the fixed message `wip: local checkpoint`.
+- Stage exactly the included paths and create exactly one local commit.
+- If nothing is includable, return a clean no-op.
 
-### Phase 1: Publish
+### `ребейз`
 
-1. Run `prepare`.
-2. Show included and excluded files to the user.
-3. Wait for explicit approval.
-4. Run `publish`.
-5. Return the PR URL.
+- Local only.
+- Refuse on detached HEAD, the default branch, staged index content, tracked unstaged changes, or unresolved conflicts.
+- Rewrite only commits that are local and unpublished relative to `@{u}` or, if no upstream exists, relative to the merge-base with the default branch.
+- Supported model is deterministic only:
+  - one local commit: non-interactive reword
+  - multiple local commits: squash to exactly one new local commit
+- Final message comes from the newest local commit with one leading `fixup! ` or `squash! ` prefix stripped.
+- If nothing is rewriteable, return a clean no-op.
 
-### Phase 2: After Merge
+### `пуш`
 
-When the user confirms the PR was merged:
+- This remains the healthy publish workflow.
+- `push` / `пуш` in `scripts/run` is self-authorizing.
+- Default flow is internal `prepare -> publish -> report`.
+- User review happens on the created PR before merge, not as an extra approval round after `prepare`.
+- Direct push to the default branch remains allowed only when the user explicitly requests `пуш без пр` / `push no pr` / `push without pr`.
+- `пуш` can publish saved local work from local unpublished commits even when the worktree is clean.
+- In that clean-worktree case, `пуш` internally derives the publish scope from the local unpublished commit range on the current branch, re-applies the exact classifier to those changed paths, and still creates one normal PR commit.
 
-1. Verify the merge happened.
-2. Require no staged changes, no tracked unstaged changes, and no unresolved conflicts.
-3. Harmless local untracked files may remain, but real checkout/update conflicts from untracked files still block hygiene.
-4. Run:
+### `мердж дан`
 
-```bash
-/Users/glebnikitin/work/rss/skills/git-publish/scripts/git_hygiene.sh --repo /absolute/path/to/repo --apply
+- Applies only when the most recent project-log success marker is `push mode=pr`.
+- Resolve the anchor from that last marker: `branch=<anchor_branch> base=<anchor_base>`, then resolve the exact publish commit that introduced that marker line in the tracked project log.
+- Refuse if the current branch before cleanup is neither the default branch nor `anchor_branch`.
+- Verify exactly one matching GitHub PR for `head=anchor_branch`, `base=anchor_base`, and the resolved publish commit SHA, and require that PR to be merged.
+- Require no staged changes, no tracked unstaged changes, and no unresolved conflicts before hygiene.
+- Run the existing hygiene flow, ensure the default branch is current and synced, and ensure the local anchor branch is gone.
+- Remote branch deletion is best-effort only.
+- Append exactly one line:
+
+```text
+YYYY-MM-DD HH:MM | git-publish skill | merge-confirmed branch=<anchor_branch> base=<anchor_base> | user confirmed merged; hygiene=applied; remote_branch=<gone|present|unknown>
 ```
 
-5. Report final local branch state.
-
-For this workflow, post-merge hygiene is the standard completion step.
+- That final tracked log delta is intentional. Do not clean it away.
 
 ## Commands
 
-PR mode:
+Local checkpoint:
+
+```bash
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run commit --repo /absolute/path/to/repo
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run комит --repo /absolute/path/to/repo
+```
+
+Local history cleanup:
+
+```bash
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run rebase --repo /absolute/path/to/repo
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run ребейз --repo /absolute/path/to/repo
+```
+
+Push protocol:
+
+```bash
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run push pr --repo /absolute/path/to/repo --topic <slug>
+```
+
+Optional inspection/debug entrypoints:
 
 ```bash
 /Users/glebnikitin/work/rss/skills/git-publish/scripts/run prepare pr --repo /absolute/path/to/repo --topic <slug>
 /Users/glebnikitin/work/rss/skills/git-publish/scripts/run publish pr --repo /absolute/path/to/repo --plan /tmp/git-publish-plans/<token>.json
 ```
 
-No-PR mode:
+No-PR push:
 
 ```bash
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run push no-pr --repo /absolute/path/to/repo
 /Users/glebnikitin/work/rss/skills/git-publish/scripts/run prepare no-pr --repo /absolute/path/to/repo
 /Users/glebnikitin/work/rss/skills/git-publish/scripts/run publish no-pr --repo /absolute/path/to/repo --plan /tmp/git-publish-plans/<token>.json
 ```
 
-Legacy compatibility (kept temporarily):
+Post-merge completion:
+
+```bash
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run merge-done --repo /absolute/path/to/repo
+/Users/glebnikitin/work/rss/skills/git-publish/scripts/run мердж дан --repo /absolute/path/to/repo
+```
+
+Legacy one-shot compatibility (kept temporarily):
 
 ```bash
 /Users/glebnikitin/work/rss/skills/git-publish/scripts/run pr --repo /absolute/path/to/repo --topic <slug>
@@ -101,7 +129,7 @@ Legacy compatibility (kept temporarily):
 /Users/glebnikitin/work/rss/skills/git-publish/scripts/run no-pr --repo /absolute/path/to/repo
 ```
 
-Do not use legacy one-shot commands for new agent work. They exist only for temporary backward compatibility.
+Do not use legacy one-shot commands for new agent work.
 
 ## What `prepare` Reports
 
@@ -116,7 +144,7 @@ Do not use legacy one-shot commands for new agent work. They exist only for temp
 - active log path
 - plan path
 
-Classification rules:
+Classifier rules:
 - tracked modified/deleted/renamed files: included by default
 - `.DS_Store`: `excluded-junk`
 - suspicious untracked files like `.env`, `.env.local`, `.key`, `.pem`, `.p12`, `.pfx`: `excluded-unclear`
@@ -148,13 +176,22 @@ If repo state drifted after `prepare`, publish must fail and require a fresh `pr
 Legacy one-shot compatibility:
 - if legacy one-shot prepare finds no includable files, it should return a clean no-op success instead of failing in publish
 
+Self-authorizing `push` compatibility:
+- normal `push` may publish either:
+  - current publishable worktree changes
+  - or saved local unpublished commits from the current branch when the worktree is already clean
+- in that clean-worktree local-commit path, excluded files from the exact classifier must still stay out of the PR commit
+- no extra approval round is required after that internal preparation
+
 ## After Merge Expectations
 
-After a successful merge and hygiene apply, the expected local result is:
+After successful hygiene inside `мердж дан`, the expected local result is:
 - current branch is `main`
 - local `main` is updated to `origin/main`
 - stale remote refs are pruned
 - local gone feature branches are removed
+
+After that, `мердж дан` appends the required `merge-confirmed ...` line and intentionally leaves that one tracked log delta in the worktree.
 
 Hygiene contract:
 - harmless untracked files do not block hygiene by themselves
@@ -179,7 +216,7 @@ Failure markers may still be written on failed publish attempts.
 
 ## Output Expectations
 
-Prepare output should make it easy for an agent to ask for approval.
+Prepare output remains available for inspection/debug and plan-based workflows.
 
 Publish output should include at least:
 - mode
@@ -213,11 +250,16 @@ Project log path:
 - prefer `./agent/log.md`
 - fallback `./log.md`
 
-Legacy log lines remain valid.
+Log lines used by this skill:
+
+```text
+YYYY-MM-DD HH:MM | git-publish skill | push mode=<pr|no-pr> branch=<name> base=<name> | success
+YYYY-MM-DD HH:MM | git-publish skill | merge-confirmed branch=<anchor_branch> base=<anchor_base> | user confirmed merged; hygiene=applied; remote_branch=<gone|present|unknown>
+```
 
 ## Helpers
 
-- `scripts/run`: wrapper for `prepare` and `publish`
+- `scripts/run`: wrapper for `commit`, `rebase`, `prepare`, `publish`, and `merge-done`
 - `scripts/git_publish.py`: core implementation
 - `scripts/log_since_last_push.py`: log context helper
 - `scripts/create_pr_gh.sh`: PR creation via `gh`

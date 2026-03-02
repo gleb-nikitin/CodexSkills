@@ -15,8 +15,10 @@
   3. `publish`
   4. user merges PR
   5. agent runs post-merge cleanup
+  6. agent confirms final state
 - The one-commit PR flow is working in production.
-- Post-merge local cleanup is part of the standard protocol.
+- Post-merge cleanup is practical and repeatable.
+- The workflow now looks healthy in real use.
 
 ## Current Repo State
 
@@ -45,15 +47,17 @@ Use these in this order:
 - No standalone marker-only commit
 - PR body keeps pre-publish log context
 - Untracked directories do not crash `prepare`
-- Recursive file-level planning now works for brand new untracked project directories
+- Recursive file-level planning works for brand new untracked project directories
 - `publish` rejects repo/mode mismatch between CLI and saved plan
 - Legacy one-shot no-op behavior is preserved on empty include sets
+- Post-merge cleanup no longer blocks on harmless untracked files alone
+- A full cycle can end repeatedly in one clean local `main` and one clean remote `main`
 
 ## What Is Still Deferred
 
 - runtime-only enforcement of some policy rules
 - durable plan storage outside `/tmp`
-- automated remote feature branch deletion after merge
+- automated remote feature branch deletion as part of the tool itself
 
 See `/Users/glebnikitin/work/rss/skills/agent/git-roadmap.md` for the deferred list.
 

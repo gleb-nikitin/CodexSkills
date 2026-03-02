@@ -5,6 +5,14 @@ usage() {
   echo "Usage:" >&2
   echo "  run prepare <pr|no-pr> --repo <path> [--topic <slug>] [--json]" >&2
   echo "  run publish <pr|no-pr> --repo <path> --plan <file-or-token> [--json]" >&2
+  echo "  run push [<pr|no-pr>] --repo <path> [--topic <slug>] [--json]    # self-authorizing publish to PR/no-pr" >&2
+  echo "  run commit --repo <path> [--json]" >&2
+  echo "  run rebase --repo <path> [--remote <name>] [--base <branch>] [--json]" >&2
+  echo "  run merge-done --repo <path> [--remote <name>] [--base <branch>] [--json]" >&2
+  echo "Aliases:" >&2
+  echo "  commit: 'комит'" >&2
+  echo "  rebase: 'ребейз'" >&2
+  echo "  merge-done: 'мердж дан', 'мердж-дан'" >&2
   echo "Legacy:" >&2
   echo "  run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run] [--json]" >&2
   echo "Aliases for no-pr: 'пуш без пр', 'push no pr', 'push without pr'" >&2
@@ -25,20 +33,69 @@ normalize_mode() {
 }
 
 ACTION=""
-MODE_RAW="${1:-}"
-if [[ "${MODE_RAW:-}" == "prepare" || "${MODE_RAW:-}" == "publish" ]]; then
-  ACTION="$MODE_RAW"
-  shift
-  MODE_RAW="${1:-pr}"
-else
-  ACTION="legacy"
+MODE_RAW=""
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
 fi
-shift $(( $# > 0 ? 1 : 0 ))
+case "${1:-}" in
+  prepare|publish)
+    ACTION="$1"
+    shift
+    if [[ $# -gt 0 && "${1:-}" != --* ]]; then
+      MODE_RAW="$1"
+      shift
+    else
+      MODE_RAW="pr"
+    fi
+    ;;
+  push|пуш)
+    ACTION="push"
+    shift
+    if [[ $# -gt 0 && "${1:-}" != --* ]]; then
+      MODE_RAW="$1"
+      shift
+    else
+      MODE_RAW="pr"
+    fi
+    ;;
+  commit|комит)
+    ACTION="commit"
+    shift
+    ;;
+  rebase|ребейз)
+    ACTION="rebase"
+    shift
+    ;;
+  merge-done|merge_done|"мердж-дан"|"мердж дан")
+    ACTION="merge-done"
+    shift
+    ;;
+  мердж)
+    if [[ "${2:-}" == "дан" ]]; then
+      ACTION="merge-done"
+      shift 2
+    else
+      ACTION="legacy"
+      MODE_RAW="${1:-}"
+      shift $(( $# > 0 ? 1 : 0 ))
+    fi
+    ;;
+  *)
+    ACTION="legacy"
+    MODE_RAW="${1:-}"
+    shift $(( $# > 0 ? 1 : 0 ))
+    ;;
+esac
 
 MODE="$(normalize_mode "$MODE_RAW")"
 REPO=""
 TOPIC=""
 PLAN=""
+REMOTE=""
+BASE=""
+MESSAGE=""
+PR_TITLE=""
 DRY_RUN=0
 JSON=0
 
@@ -54,6 +111,22 @@ while [[ $# -gt 0 ]]; do
       ;;
     --plan)
       PLAN="${2:-}"
+      shift 2
+      ;;
+    --remote)
+      REMOTE="${2:-}"
+      shift 2
+      ;;
+    --base)
+      BASE="${2:-}"
+      shift 2
+      ;;
+    --message)
+      MESSAGE="${2:-}"
+      shift 2
+      ;;
+    --pr-title)
+      PR_TITLE="${2:-}"
       shift 2
       ;;
     --dry-run)
@@ -76,9 +149,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$MODE" != "pr" && "$MODE" != "no-pr" ]]; then
-  usage
-  exit 2
+if [[ "$ACTION" == "prepare" || "$ACTION" == "publish" || "$ACTION" == "legacy" ]]; then
+  if [[ "$MODE" != "pr" && "$MODE" != "no-pr" ]]; then
+    usage
+    exit 2
+  fi
 fi
 
 if [[ -z "$REPO" ]]; then
@@ -88,16 +163,55 @@ if [[ -z "$REPO" ]]; then
 fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-COMMON_ARGS=(--mode "$MODE" --repo "$REPO")
-if [[ -n "$TOPIC" ]]; then
-  COMMON_ARGS+=(--topic "$TOPIC")
+COMMON_ARGS=(--repo "$REPO")
+if [[ -n "$REMOTE" ]]; then
+  COMMON_ARGS+=(--remote "$REMOTE")
+fi
+if [[ -n "$BASE" ]]; then
+  COMMON_ARGS+=(--base "$BASE")
 fi
 if [[ "$JSON" -eq 1 ]]; then
   COMMON_ARGS+=(--json)
 fi
 
+if [[ "$ACTION" == "commit" ]]; then
+  exec python3 "$SCRIPT_DIR/git_publish.py" --action commit "${COMMON_ARGS[@]}"
+fi
+
+if [[ "$ACTION" == "rebase" ]]; then
+  exec python3 "$SCRIPT_DIR/git_publish.py" --action rebase "${COMMON_ARGS[@]}"
+fi
+
+if [[ "$ACTION" == "merge-done" ]]; then
+  exec python3 "$SCRIPT_DIR/git_publish.py" --action merge-done "${COMMON_ARGS[@]}"
+fi
+
+if [[ "$ACTION" == "push" ]]; then
+  PUSH_ARGS=(--action push --mode "$MODE" "${COMMON_ARGS[@]}")
+  if [[ -n "$TOPIC" ]]; then
+    PUSH_ARGS+=(--topic "$TOPIC")
+  fi
+  if [[ -n "$MESSAGE" ]]; then
+    PUSH_ARGS+=(--message "$MESSAGE")
+  fi
+  if [[ -n "$PR_TITLE" ]]; then
+    PUSH_ARGS+=(--pr-title "$PR_TITLE")
+  fi
+  exec python3 "$SCRIPT_DIR/git_publish.py" "${PUSH_ARGS[@]}"
+fi
+
 if [[ "$ACTION" == "prepare" ]]; then
-  exec python3 "$SCRIPT_DIR/git_publish.py" --action prepare "${COMMON_ARGS[@]}"
+  PREPARE_ARGS=(--action prepare --mode "$MODE" "${COMMON_ARGS[@]}")
+  if [[ -n "$TOPIC" ]]; then
+    PREPARE_ARGS+=(--topic "$TOPIC")
+  fi
+  if [[ -n "$MESSAGE" ]]; then
+    PREPARE_ARGS+=(--message "$MESSAGE")
+  fi
+  if [[ -n "$PR_TITLE" ]]; then
+    PREPARE_ARGS+=(--pr-title "$PR_TITLE")
+  fi
+  exec python3 "$SCRIPT_DIR/git_publish.py" "${PREPARE_ARGS[@]}"
 fi
 
 if [[ "$ACTION" == "publish" ]]; then
@@ -106,16 +220,38 @@ if [[ "$ACTION" == "publish" ]]; then
     usage
     exit 2
   fi
-  exec python3 "$SCRIPT_DIR/git_publish.py" --action publish "${COMMON_ARGS[@]}" --plan "$PLAN"
+  exec python3 "$SCRIPT_DIR/git_publish.py" --action publish --mode "$MODE" "${COMMON_ARGS[@]}" --plan "$PLAN"
 fi
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
-  exec python3 "$SCRIPT_DIR/git_publish.py" --action prepare "${COMMON_ARGS[@]}"
+  PREPARE_ARGS=(--action prepare --mode "$MODE" "${COMMON_ARGS[@]}")
+  if [[ -n "$TOPIC" ]]; then
+    PREPARE_ARGS+=(--topic "$TOPIC")
+  fi
+  if [[ -n "$MESSAGE" ]]; then
+    PREPARE_ARGS+=(--message "$MESSAGE")
+  fi
+  if [[ -n "$PR_TITLE" ]]; then
+    PREPARE_ARGS+=(--pr-title "$PR_TITLE")
+  fi
+  exec python3 "$SCRIPT_DIR/git_publish.py" "${PREPARE_ARGS[@]}"
 fi
 
 PREPARE_ARGS=(--action prepare --mode "$MODE" --repo "$REPO" --json)
+if [[ -n "$REMOTE" ]]; then
+  PREPARE_ARGS+=(--remote "$REMOTE")
+fi
+if [[ -n "$BASE" ]]; then
+  PREPARE_ARGS+=(--base "$BASE")
+fi
 if [[ -n "$TOPIC" ]]; then
   PREPARE_ARGS+=(--topic "$TOPIC")
+fi
+if [[ -n "$MESSAGE" ]]; then
+  PREPARE_ARGS+=(--message "$MESSAGE")
+fi
+if [[ -n "$PR_TITLE" ]]; then
+  PREPARE_ARGS+=(--pr-title "$PR_TITLE")
 fi
 PLAN_OUTPUT="$(python3 "$SCRIPT_DIR/git_publish.py" "${PREPARE_ARGS[@]}")"
 INCLUDED_COUNT="$(printf '%s\n' "$PLAN_OUTPUT" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["included_paths"]))')"
@@ -128,4 +264,4 @@ if [[ "$INCLUDED_COUNT" == "0" ]]; then
   exit 0
 fi
 PLAN_PATH="$(printf '%s\n' "$PLAN_OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["plan_path"])')"
-exec python3 "$SCRIPT_DIR/git_publish.py" --action publish "${COMMON_ARGS[@]}" --plan "$PLAN_PATH"
+exec python3 "$SCRIPT_DIR/git_publish.py" --action publish --mode "$MODE" "${COMMON_ARGS[@]}" --plan "$PLAN_PATH"
