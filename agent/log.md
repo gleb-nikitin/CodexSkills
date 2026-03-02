@@ -58,3 +58,25 @@
 2026-03-01 19:41 | milestone | git-publish spec | drafted focused spec for partial include/exclude planning of new untracked project directories without weakening current publish safety
 2026-03-01 19:54 | milestone | git-publish spec | closed untracked-project planning spec after implementation shipped and validation passed
 2026-03-01 19:59 | git-publish skill | push mode=pr branch=codex/git-publish-untracked-project base=main | success
+2026-03-01 20:07 | validation | production status update | recorded real-usage confirmation that git-publish workflow is healthy in practice; remaining issues are polish-level and reflected in roadmap/current-state
+2026-03-02 14:34 | milestone | git protocol spec | drafted split-protocol spec for комит / ребейз / пуш / мердж дан without weakening current publish behavior
+2026-03-02 14:38 | validation | git protocol split review | reviewed split-protocol spec against current git-publish workflow and identified blocking ambiguities around rebase scope, commit include rules, merge-dan cleanup guarantees, and log semantics
+2026-03-02 15:12 | milestone | git protocol spec | rewrote split-protocol spec to tighten command boundaries, preserve current push semantics, narrow rebase scope, require merge verification before cleanup, and avoid dirty-state logging requirements
+2026-03-02 15:35 | policy | git protocol spec rewrite | rewrote the split-protocol spec to make rebase local-only, anchor merge-dan to the latest publish marker, require tracked merge-confirmation logging, and define exact commit/rebase minimum behavior
+2026-03-02 18:32 | validation | git protocol implementation review | reviewed reported git-publish protocol-split implementation and found blocking risks around merge-done PR disambiguation and merge-confirmation log leakage into later publish cycles
+2026-03-02 18:43 | milestone | local checkpoint | created local safe-state commit for git protocol split discussion and in-progress git-publish updates
+2026-03-02 19:02 | milestone | git-publish integrity manifest spec | drafted focused spec for prepare-time manifest capture, central `/disk/git-publish` storage, and post-hygiene scope verification
+2026-03-02 19:02 | validation | git-publish integrity manifest spec | reviewed the spec against the current PR publish cycle and kept no-pr changes, full-repo hashing, repo-local artifacts, and archive behavior out of scope
+2026-03-02 19:05 | policy | git-publish integrity manifest spec | revised push semantics so user-facing пуш is self-authorizing: internal prepare, immediate PR publish, then result reporting
+2026-03-02 19:05 | validation | git-publish integrity manifest spec | rechecked the draft to remove any extra approval-gate requirement after prepare while keeping commit, rebase, and merge-done behavior unchanged
+2026-03-02 19:14 | policy | git protocol split spec | corrected push semantics in agent/git-protocol-split-spec.md so user-facing пуш is self-authorizing with internal prepare, immediate PR publish, and post-publish reporting
+2026-03-02 19:14 | validation | git protocol split spec | reviewed the corrected spec for stale pre-publish approval language and kept commit, rebase, and merge-done semantics unchanged
+2026-03-02 19:23 | milestone | git-publish | implemented split protocols validation-complete
+2026-03-02 19:28 | milestone | git protocol spec | rewrote split-protocol spec so push publishes saved local work from the current branch, rebase stays optional, and merge-done remains merge-verify plus hygiene finalization
+2026-03-02 19:39 | milestone | git-publish protocol split | implemented push-from-local-commits path and updated protocol docs
+2026-03-02 19:39 | validation | git-publish protocol split | commit, rebase, push-from-clean-worktree, merge-done, and untracked-project regressions passed in temp repos
+2026-03-02 19:42 | validation | git-publish protocol split | manual review found classifier bypass in push-from-local-commits and ambiguous merge-done anchor; implementation sent back for fixes
+2026-03-02 19:45 | milestone | git-publish protocol split | fixed classifier-aware push-from-local-commits and unique merge-done anchor by publish commit SHA
+2026-03-02 19:45 | validation | git-publish protocol split | excluded paths blocked in commit-range push, allowed commit-range push passed, worktree push passed, merge-done anchor resolved by marker commit SHA
+2026-03-02 19:46 | milestone | git-publish protocol split | implementation accepted after classifier-safe commit-range push and unique merge-done anchor validation
+2026-03-02 20:02 | git-publish skill | push mode=pr branch=codex/skills-protocol base=main | success
