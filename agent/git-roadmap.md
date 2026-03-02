@@ -110,3 +110,24 @@ Reassess only after more real-world feedback on:
 ## git_hygiene
 
 Any non-trivial `git_hygiene` evolution still requires a separate spec.
+
+## Next Mandatory Update
+- Close the currently recorded protocol intents instead of opening more parallel protocol branches.
+- Priority 1: move the recorded future intents into concrete spec/implementation work.
+- Priority 2: fix rename-aware planning for commit-range `push` so saved local commits with renames cannot be mispublished.
+- New blocking review note: commit-range planning currently relies on `git diff --name-only`, which loses rename metadata. The next update must preserve rename-aware status/source paths before classification so excluded rename targets cannot turn into destructive deletes in the publish commit.
+
+
+## Future Intent: Named Points For Commit And Push
+- User intent: `комит` and `пуш` should operate on a named point, not a generic checkpoint label.
+- If the user names the point explicitly, use that name or propose a tighter version.
+- If the user does not name the point, the agent should derive a concise meaningful name from recent milestones / meaningful changes and tell the user which name was used.
+- The agent should also tell the user that future `комит` / `пуш` commands can include the point name directly.
+- This should drive local commit naming and publish naming (topic / commit message / PR title) in a consistent way.
+
+
+## Future Intent: Better Autonomous Point Summaries
+- User intent: when the user does not name the point, the skill should derive a short clean summary by itself instead of emitting a long technical tail from recent log lines.
+- Desired evolution: autonomous point naming should compress recent milestones / validations into a concise human-usable point name suitable for commit and publish naming.
+- Current signal: the latest derived point name was technically correct but far too long for normal daily use.
+
