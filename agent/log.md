@@ -102,3 +102,4 @@
 2026-03-03 01:15 | policy | git-publish roadmap | deferred cleanup of agent files so procedural GitHub protocol lives in SKILL.md, not maintainer context
 2026-03-04 20:27 | milestone | archive git-publish donor | copied git-publish to /Users/glebnikitin/work/rss/skills/archive/git-publish-v4.5-donor as read-only donor baseline
 2026-03-04 21:37 | milestone | spec 001 context refresh | accepted by user and closed; roadmap state advanced to next spec
+2026-03-04 23:55 | milestone | spec 002 git-commit | accepted; git-publish/scripts/run created with commit operation, 9/9 tests passed

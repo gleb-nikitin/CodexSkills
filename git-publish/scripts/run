@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WORKSPACE_ROOT="/Users/glebnikitin/work"
+
+usage() {
+  echo "usage: run commit --repo /absolute/path [point name words...]" >&2
+}
+
+# Returns exclude reason if file should be excluded, empty string otherwise
+exclude_reason() {
+  local path="$1"
+  local base
+  base="$(basename "$path")"
+
+  [[ "$base" == ".DS_Store" ]] && echo "os-junk" && return
+  [[ "$path" == .claude/* || "$path" == ".claude" ]] && echo "local-agent" && return
+  [[ "$base" == ".env" || "$base" == .env.* ]] && echo "secret" && return
+  case "$base" in
+    *.pem|*.key|*.p12|*.pfx) echo "secret" && return ;;
+  esac
+  [[ "$path" == dist/* ]] && echo "build-artifact" && return
+  [[ "$base" == ~* || "$base" == *.swp || "$base" == *.swo ]] && echo "editor-temp" && return
+  echo ""
+}
+
+do_commit() {
+  local repo=""
+  local point_parts=()
+
+  # Parse args
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)
+        shift
+        repo="${1:-}"
+        shift
+        ;;
+      *)
+        point_parts+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  # Validate --repo
+  if [[ -z "$repo" ]]; then
+    echo "error: --repo is required" >&2
+    exit 1
+  fi
+  if [[ "$repo" != /* ]]; then
+    echo "error: --repo must be an absolute path" >&2
+    exit 1
+  fi
+  if [[ "$repo" == "$WORKSPACE_ROOT" ]]; then
+    echo "error: --repo must not be workspace root ($WORKSPACE_ROOT)" >&2
+    exit 1
+  fi
+  if [[ ! -d "$repo" ]]; then
+    echo "error: directory does not exist: $repo" >&2
+    exit 1
+  fi
+  if ! git -C "$repo" rev-parse --git-dir &>/dev/null; then
+    echo "error: not a git repository: $repo" >&2
+    exit 1
+  fi
+
+  # Build point name
+  local point
+  if [[ ${#point_parts[@]} -gt 0 ]]; then
+    point="${point_parts[*]}"
+  else
+    point="wip: local checkpoint"
+  fi
+
+  # Collect changes
+  local included=()
+  local included_display=()
+  local excluded=()
+
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local xy="${line:0:2}"
+    local file_path="${line:3}"
+
+    # Handle renames: "R  old -> new" — git porcelain v1 uses "old\0new" with -z,
+    # but without -z it's "old -> new". We want the destination (new) path.
+    if [[ "$xy" == "R " || "$xy" == " R" || "$xy" == "RR" || "${xy:0:1}" == "R" || "${xy:1:1}" == "R" ]]; then
+      file_path="${file_path## *-> }"
+    fi
+
+    local reason
+    reason="$(exclude_reason "$file_path")"
+
+    if [[ -n "$reason" ]]; then
+      excluded+=("$(basename "$file_path") ($reason)")
+    else
+      local status_char="${xy:0:1}"
+      [[ "$status_char" == " " ]] && status_char="${xy:1:1}"
+      included+=("$file_path")
+      included_display+=("  $status_char  $file_path")
+    fi
+  done < <(git -C "$repo" status --porcelain)
+
+  # Nothing to commit
+  if [[ ${#included[@]} -eq 0 && ${#excluded[@]} -eq 0 ]]; then
+    echo "nothing to commit"
+    exit 0
+  fi
+
+  if [[ ${#included[@]} -eq 0 ]]; then
+    echo "nothing to commit"
+    if [[ ${#excluded[@]} -gt 0 ]]; then
+      echo "excluded (${#excluded[@]}):"
+      for e in "${excluded[@]}"; do echo "  $e"; done
+    fi
+    exit 0
+  fi
+
+  # Stage included files individually
+  for f in "${included[@]}"; do
+    git -C "$repo" add -- "$f"
+  done
+
+  # Commit
+  local sha
+  sha="$(git -C "$repo" commit -m "$point" --quiet && git -C "$repo" rev-parse --short HEAD)"
+
+  # Report
+  echo "committed $sha"
+  echo "point: $point"
+  echo "included (${#included_display[@]}):"
+  for line in "${included_display[@]}"; do echo "$line"; done
+  if [[ ${#excluded[@]} -gt 0 ]]; then
+    echo "excluded (${#excluded[@]}):"
+    for e in "${excluded[@]}"; do echo "  $e"; done
+  fi
+}
+
+# Dispatch
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 2
+fi
+
+ACTION="$1"
+shift
+
+case "$ACTION" in
+  commit) do_commit "$@" ;;
+  *) usage; exit 2 ;;
+esac

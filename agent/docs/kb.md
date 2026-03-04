@@ -11,12 +11,12 @@
 - `./archive/git-publish-v4.5-donor/` — read-only fallback implementation snapshot.
 
 ## Known Debt
-- `git-publish` executable scripts are not in root skill directory; active implementation is archived.
-- `git-publish` v5 spec scope is intentionally pending; do not execute before explicit spec discussion/approval.
+- Only `commit` operation implemented; `push pr`, `push no-pr`, `merge-done` still pending.
+- No integration test with a real project repo yet.
 
 ## Session Handoff
 - date: 2026-03-04
-- what changed: aligned discussion context for `git-publish v5` prep and recorded explicit pre-spec decisions in roadmap intent and context snapshot.
-- why: lock minimal-v5 direction before drafting/executing `spec 002`.
-- risks: active `git-publish` runtime still not present in root skill folder; premature hardening can expand scope.
-- next checks: discuss and approve `spec 002` boundaries, then implement minimal scripts with PR-default flow and minimal reporting.
+- what changed: implemented `git-publish/scripts/run` with `commit` operation (spec 002). Safety filters, validation, plain-text reporting.
+- why: first building block of v5 git-publish skill.
+- risks: only commit works; push/merge operations not yet available.
+- next checks: design and implement `push pr` operation (spec 003).
