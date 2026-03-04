@@ -116,6 +116,7 @@ Any non-trivial `git_hygiene` evolution still requires a separate spec.
 - Priority 1: move the recorded future intents into concrete spec/implementation work.
 - Priority 2: fix rename-aware planning for commit-range `push` so saved local commits with renames cannot be mispublished.
 - New blocking review note: commit-range planning currently relies on `git diff --name-only`, which loses rename metadata. The next update must preserve rename-aware status/source paths before classification so excluded rename targets cannot turn into destructive deletes in the publish commit.
+- New mandatory clarification: `push` must publish only the latest safepoint. If current includable worktree changes exist after that safepoint, they must remain local, be reported clearly, and must not be silently folded into or compared against the publish candidate.
 
 
 ## Future Intent: Named Points For Commit And Push
@@ -131,3 +132,21 @@ Any non-trivial `git_hygiene` evolution still requires a separate spec.
 - Desired evolution: autonomous point naming should compress recent milestones / validations into a concise human-usable point name suitable for commit and publish naming.
 - Current signal: the latest derived point name was technically correct but far too long for normal daily use.
 
+## Future Intent: Push Publishes Only The Latest Safepoint
+- User intent: `комит` creates a safepoint for rollback, and `push` publishes only the latest safepoint.
+- Current clarification: includable worktree changes created after that safepoint are the next local layer of work and must not be published automatically.
+- Required evolution: when `push` sees saved local safepoint commits plus newer includable worktree changes, it must publish only the safepoint-derived candidate and report that newer local changes remain outside the PR.
+- Auto-checkpoint of the active project log remains acceptable only as protocol bookkeeping. It must not change the rule that the publish source is the last safepoint.
+
+## Future Intent: Make `SKILL.md` The True Operator Contract
+- User-facing protocol behavior must be fully understandable from `/Users/glebnikitin/work/rss/skills/git-publish/SKILL.md` alone.
+- Maintainer files under `agent/` may hold implementation notes, roadmap items, and review history, but they must not be the only place where critical operator semantics live.
+- Current gap: part of the latest safepoint-only publish intent and some protocol clarifications exist only in maintainer context, which makes external agents vulnerable to stale or inconsistent behavior.
+- Required evolution: when the next git-publish update happens, move the authoritative operator contract into `SKILL.md` first, then align code and maintainer context to it.
+- Also clean `agent/` files so they stop carrying procedural GitHub operator flow. They should describe maintainer context only, while actual git/GitHub protocol steps live in `SKILL.md`.
+
+## Future Intent: Resolve `push no-pr` Protocol Inconsistency
+- Current inconsistency: `SKILL.md` presents `push no-pr` as the no-PR variant of the publish protocol, but the implementation still refuses clean-worktree publish-from-local-commits in no-PR mode.
+- User impact: this pressures operators to bypass the skill with raw `git push`, which weakens the protocol boundary.
+- Required evolution: either make `push no-pr` support the same latest-safepoint publish source as PR mode with the appropriate safety checks, or narrow the public contract in `SKILL.md` so the limitation is explicit everywhere.
+- Until then, treat this as deferred protocol debt, not as settled behavior.
