@@ -23,7 +23,7 @@ use: `/Users/glebnikitin/work/rss/skills/git-publish/SKILL.md`
 - Warn if user request leads to unsafe, destructive, or policy-conflicting actions.
 
 ## Cold Start
-1. Read `./agent/specs/roadmap/state.md`.
+1. Read `./agent/roadmap/state.md`.
 2. If `active_spec` is not `none`, open that spec before making changes.
 3. `state.md` is the freshest current-state file. Trust it first; other context files may lag behind.
 
@@ -49,9 +49,9 @@ use: `/Users/glebnikitin/work/rss/skills/git-publish/SKILL.md`
 - add a file on spec acceptance if you experienced problems while executing other agents need to know about or user requests it.
 
 ### Roadmap
-- `./agent/specs/roadmap/state.md` — current active spec pointer and important notes for next no-history session. Links to next planned specs after completion of current spec for multi-spec que.
-- `./agent/specs/roadmap/archive.md` — completed specs (newest first). Don't load until needed.
-- `./agent/specs/roadmap/intent.md` — project goals and direction. Load when planing a spec.
+- `./agent/roadmap/state.md` — current active spec pointer and important notes for next no-history session. Links to next planned specs after completion of current spec for multi-spec que.
+- `./agent/roadmap/archive.md` — completed specs (newest first). Don't load until needed.
+- `./agent/roadmap/intent.md` — project goals and direction. Load when planing a spec.
 
 ### Spec Lifecycle
 - Specs live at `./agent/specs/NNN-kebab-name.md`.
@@ -61,8 +61,8 @@ use: `/Users/glebnikitin/work/rss/skills/git-publish/SKILL.md`
 
 ### On Spec Completion
 1. Ask for spec acceptance. After the spec is accepted proceed to 2.
-2. Copy completed entry to `./agent/specs/roadmap/archive.md` (newest first).
-3. Rewrite `./agent/specs/roadmap/state.md` fully (active_spec, last_finished, next_spec, queue).
+2. Copy completed entry to `./agent/roadmap/archive.md` (newest first).
+3. Rewrite `./agent/roadmap/state.md` fully (active_spec, last_finished, next_spec, queue).
 4. Update `./agent/docs/kb.md` session handoff block.
 5. Append `milestone` entry to `./agent/log.md`.
 
@@ -81,7 +81,7 @@ use: `/Users/glebnikitin/work/rss/skills/git-publish/SKILL.md`
 - This is the default mode.
 - Don't change anything besides context files to finilize discussion results.
 - Brainstorm with user to prepare all the important context files.
-- Intent first. Carefully log the intents in `./agent/specs/roadmap/intent.md`.
+- Intent first. Carefully log the intents in `./agent/roadmap/intent.md`.
 - Global intents: project goals
 - Planned intents: project trajectory
 - If a desicion or action gets the project closer to global intents it's a sucess.
