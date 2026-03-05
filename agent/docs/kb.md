@@ -11,12 +11,12 @@
 - `./archive/git-publish-v4.5-donor/` — read-only fallback implementation snapshot.
 
 ## Known Debt
-- Only `commit` operation implemented; `push pr`, `push no-pr`, `merge-done` still pending.
-- No integration test with a real project repo yet.
+- `git-publish` flow is implemented for `commit`, `push pr`, `push no-pr`, and `merge-done`; real GitHub integration should be revalidated after future protocol edits.
+- No active queued spec; next work item should be user-prioritized.
 
 ## Session Handoff
-- date: 2026-03-04
-- what changed: implemented `git-publish/scripts/run` with `commit` operation (spec 002). Safety filters, validation, plain-text reporting.
-- why: first building block of v5 git-publish skill.
-- risks: only commit works; push/merge operations not yet available.
-- next checks: design and implement `push pr` operation (spec 003).
+- date: 2026-03-05
+- what changed: closed spec 003; `git-publish/scripts/run` now supports full commit/publish/merge cleanup cycle with shared repo validation, excluded-aware clean-worktree checks, anchored PR cleanup, and SHA drift guard in `merge-done`.
+- why: complete minimal working publish protocol and prevent unsafe `merge-done` reset when local `main` moved after publish.
+- risks: full production verification on a real GitHub remote should be rerun after any additional script changes.
+- next checks: pick the next spec from user priority; if git-publish evolves again, keep anchor compatibility and clean-worktree semantics covered by tests.
