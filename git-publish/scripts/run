@@ -1,283 +1,436 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-usage() {
-  echo "Usage:" >&2
-  echo "  run prepare <pr|no-pr> --repo <path> [--topic <slug>] [--json]" >&2
-  echo "  run publish <pr|no-pr> --repo <path> --plan <file-or-token> [--json]" >&2
-  echo "  run push [<pr|no-pr>] --repo <path> [--topic <slug>] [--json] [point name...]    # self-authorizing publish to PR/no-pr" >&2
-  echo "  run commit --repo <path> [--json] [point name...]" >&2
-  echo "  run rebase --repo <path> [--remote <name>] [--base <branch>] [--json]" >&2
-  echo "  run merge-done --repo <path> [--remote <name>] [--base <branch>] [--json] [point name...]" >&2
-  echo "Aliases:" >&2
-  echo "  commit: 'комит'" >&2
-  echo "  rebase: 'ребейз'" >&2
-  echo "  merge-done: 'мердж дан', 'мердж-дан'" >&2
-  echo "Legacy:" >&2
-  echo "  run <pr|no-pr> --repo <path> [--topic <slug>] [--dry-run] [--json]" >&2
-  echo "Aliases for no-pr: 'пуш без пр', 'push no pr', 'push without pr'" >&2
-}
-
-normalize_mode() {
-  case "${1:-}" in
-    pr)
-      echo "pr"
-      ;;
-    no-pr|no_pr|nopr|"пуш без пр"|"push no pr"|"push without pr")
-      echo "no-pr"
-      ;;
-    *)
-      echo "${1:-}"
-      ;;
-  esac
-}
+WORKSPACE_ROOT="/Users/glebnikitin/work"
+ANCHOR_FILE=".git/git-publish-anchor"
 
 ACTION=""
-MODE_RAW=""
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage
-  exit 0
-fi
-case "${1:-}" in
-  prepare|publish)
-    ACTION="$1"
-    shift
-    if [[ $# -gt 0 && "${1:-}" != --* ]]; then
-      MODE_RAW="$1"
-      shift
-    else
-      MODE_RAW="pr"
-    fi
-    ;;
-  push|пуш)
-    ACTION="push"
-    shift
-    if [[ $# -gt 0 && "${1:-}" != --* ]]; then
-      MODE_RAW="$1"
-      shift
-    else
-      MODE_RAW="pr"
-    fi
-    ;;
-  commit|комит)
-    ACTION="commit"
-    shift
-    ;;
-  rebase|ребейз)
-    ACTION="rebase"
-    shift
-    ;;
-  merge-done|merge_done|"мердж-дан"|"мердж дан")
-    ACTION="merge-done"
-    shift
-    ;;
-  мердж)
-    if [[ "${2:-}" == "дан" ]]; then
-      ACTION="merge-done"
-      shift 2
-    else
-      ACTION="legacy"
-      MODE_RAW="${1:-}"
-      shift $(( $# > 0 ? 1 : 0 ))
-    fi
-    ;;
-  *)
-    ACTION="legacy"
-    MODE_RAW="${1:-}"
-    shift $(( $# > 0 ? 1 : 0 ))
-    ;;
-esac
-
-MODE="$(normalize_mode "$MODE_RAW")"
+MODE=""
 REPO=""
 TOPIC=""
-PLAN=""
-REMOTE=""
-BASE=""
-MESSAGE=""
-PR_TITLE=""
-POINT_NAME_PARTS=()
-DRY_RUN=0
-JSON=0
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --repo)
-      REPO="${2:-}"
-      shift 2
-      ;;
-    --topic)
-      TOPIC="${2:-}"
-      shift 2
-      ;;
-    --plan)
-      PLAN="${2:-}"
-      shift 2
-      ;;
-    --remote)
-      REMOTE="${2:-}"
-      shift 2
-      ;;
-    --base)
-      BASE="${2:-}"
-      shift 2
-      ;;
-    --message)
-      MESSAGE="${2:-}"
-      shift 2
-      ;;
-    --pr-title)
-      PR_TITLE="${2:-}"
-      shift 2
-      ;;
-    --dry-run)
-      DRY_RUN=1
-      shift
-      ;;
-    --json)
-      JSON=1
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      POINT_NAME_PARTS+=("$1")
-      shift
-      ;;
-  esac
-done
-
 POINT_NAME=""
-if [[ ${#POINT_NAME_PARTS[@]} -gt 0 ]]; then
-  POINT_NAME="${POINT_NAME_PARTS[*]}"
-fi
 
-if [[ "$ACTION" == "prepare" || "$ACTION" == "publish" || "$ACTION" == "legacy" ]]; then
-  if [[ "$MODE" != "pr" && "$MODE" != "no-pr" ]]; then
-    usage
-    exit 2
-  fi
-fi
+usage() {
+  cat >&2 <<'USAGE'
+usage:
+  run commit --repo /absolute/path [point name words...]
+  run push pr --repo /absolute/path [--topic <slug>]
+  run push no-pr --repo /absolute/path
+  run merge-done --repo /absolute/path
+USAGE
+}
 
-if [[ -z "$REPO" ]]; then
-  echo "Missing required flag: --repo <path>" >&2
+die_error() {
+  echo "error: $1" >&2
+  exit 1
+}
+
+die_usage() {
+  echo "usage error: $1" >&2
   usage
   exit 2
-fi
+}
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-COMMON_ARGS=(--repo "$REPO")
-if [[ -n "$REMOTE" ]]; then
-  COMMON_ARGS+=(--remote "$REMOTE")
-fi
-if [[ -n "$BASE" ]]; then
-  COMMON_ARGS+=(--base "$BASE")
-fi
-if [[ "$JSON" -eq 1 ]]; then
-  COMMON_ARGS+=(--json)
-fi
-
-if [[ "$ACTION" == "commit" ]]; then
-  COMMIT_ARGS=(--action commit "${COMMON_ARGS[@]}")
-  if [[ -n "$POINT_NAME" ]]; then
-    COMMIT_ARGS+=(--point-name "$POINT_NAME")
+require_cmd() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    die_error "$cmd is not installed"
   fi
-  exec python3 "$SCRIPT_DIR/git_publish.py" "${COMMIT_ARGS[@]}"
-fi
+}
 
-if [[ "$ACTION" == "rebase" ]]; then
-  exec python3 "$SCRIPT_DIR/git_publish.py" --action rebase "${COMMON_ARGS[@]}"
-fi
-
-if [[ "$ACTION" == "merge-done" ]]; then
-  MERGE_ARGS=(--action merge-done "${COMMON_ARGS[@]}")
-  if [[ -n "$POINT_NAME" ]]; then
-    MERGE_ARGS+=(--point-name "$POINT_NAME")
+require_gh_auth() {
+  if ! (cd "$REPO" && gh auth status >/dev/null 2>&1); then
+    die_error "gh is not authenticated (run: gh auth login)"
   fi
-  exec python3 "$SCRIPT_DIR/git_publish.py" "${MERGE_ARGS[@]}"
-fi
+}
 
-if [[ "$ACTION" == "push" ]]; then
-  PUSH_ARGS=(--action push --mode "$MODE" "${COMMON_ARGS[@]}")
+validate_repo() {
+  if [[ -z "$REPO" ]]; then
+    die_usage "--repo is required"
+  fi
+  if [[ "$REPO" != /* ]]; then
+    die_error "--repo must be an absolute path"
+  fi
+  if [[ "$REPO" == "$WORKSPACE_ROOT" ]]; then
+    die_error "--repo must not be workspace root ($WORKSPACE_ROOT)"
+  fi
+  if [[ ! -d "$REPO" ]]; then
+    die_error "directory does not exist: $REPO"
+  fi
+  if ! git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
+    die_error "not a git repository: $REPO"
+  fi
+}
+
+current_branch() {
+  git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null || true
+}
+
+require_on_main() {
+  local branch
+  branch="$(current_branch)"
+  if [[ "$branch" != "main" ]]; then
+    die_error "repository must be on main (current: ${branch:-detached})"
+  fi
+}
+
+require_clean_worktree() {
+  local line
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+
+    local xy="${line:0:2}"
+    local file_path="${line:3}"
+
+    # Handle renames: with non-z porcelain this renders as "old -> new".
+    if [[ "$xy" == "R " || "$xy" == " R" || "$xy" == "RR" || "${xy:0:1}" == "R" || "${xy:1:1}" == "R" ]]; then
+      file_path="${file_path##* -> }"
+    fi
+
+    local reason
+    reason="$(exclude_reason "$file_path")"
+    if [[ -z "$reason" ]]; then
+      die_error "working tree is dirty; commit or stash changes first"
+    fi
+  done < <(git -C "$REPO" status --porcelain)
+}
+
+short_head_sha() {
+  git -C "$REPO" rev-parse --short HEAD
+}
+
+head_title() {
+  git -C "$REPO" log -1 --pretty=%s
+}
+
+# Returns exclude reason if file should be excluded, empty string otherwise
+exclude_reason() {
+  local path="$1"
+  local base
+  base="$(basename "$path")"
+
+  [[ "$base" == ".DS_Store" ]] && echo "os-junk" && return
+  [[ "$path" == .claude/* || "$path" == ".claude" ]] && echo "local-agent" && return
+  [[ "$base" == ".env" || "$base" == .env.* ]] && echo "secret" && return
+  case "$base" in
+    *.pem|*.key|*.p12|*.pfx) echo "secret" && return ;;
+  esac
+  [[ "$path" == dist/* ]] && echo "build-artifact" && return
+  [[ "$base" == ~* || "$base" == *.swp || "$base" == *.swo ]] && echo "editor-temp" && return
+  echo ""
+}
+
+do_commit() {
+  local point="$POINT_NAME"
+  if [[ -z "$point" ]]; then
+    point="wip: local checkpoint"
+  fi
+
+  local included=()
+  local included_display=()
+  local excluded=()
+
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local xy="${line:0:2}"
+    local file_path="${line:3}"
+
+    # Handle renames: with non-z porcelain this renders as "old -> new".
+    if [[ "$xy" == "R " || "$xy" == " R" || "$xy" == "RR" || "${xy:0:1}" == "R" || "${xy:1:1}" == "R" ]]; then
+      file_path="${file_path##* -> }"
+    fi
+
+    local reason
+    reason="$(exclude_reason "$file_path")"
+
+    if [[ -n "$reason" ]]; then
+      excluded+=("$(basename "$file_path") ($reason)")
+    else
+      local status_char="${xy:0:1}"
+      [[ "$status_char" == " " ]] && status_char="${xy:1:1}"
+      included+=("$file_path")
+      included_display+=("  $status_char  $file_path")
+    fi
+  done < <(git -C "$REPO" status --porcelain)
+
+  if [[ ${#included[@]} -eq 0 && ${#excluded[@]} -eq 0 ]]; then
+    echo "nothing to commit"
+    exit 0
+  fi
+
+  if [[ ${#included[@]} -eq 0 ]]; then
+    echo "nothing to commit"
+    if [[ ${#excluded[@]} -gt 0 ]]; then
+      echo "excluded (${#excluded[@]}):"
+      for e in "${excluded[@]}"; do
+        echo "  $e"
+      done
+    fi
+    exit 0
+  fi
+
+  for f in "${included[@]}"; do
+    git -C "$REPO" add -- "$f"
+  done
+
+  git -C "$REPO" commit -m "$point" --quiet
+  local sha
+  sha="$(short_head_sha)"
+
+  echo "committed $sha"
+  echo "point: $point"
+  echo "included (${#included_display[@]}):"
+  for line in "${included_display[@]}"; do
+    echo "$line"
+  done
+  if [[ ${#excluded[@]} -gt 0 ]]; then
+    echo "excluded (${#excluded[@]}):"
+    for e in "${excluded[@]}"; do
+      echo "  $e"
+    done
+  fi
+}
+
+ensure_origin_main_ref() {
+  if ! git -C "$REPO" rev-parse --verify origin/main >/dev/null 2>&1; then
+    die_error "origin/main is missing; push no-pr for initial setup or fetch origin"
+  fi
+}
+
+extract_pr_number_from_url() {
+  local url="$1"
+  if [[ "$url" =~ /pull/([0-9]+)$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  return 1
+}
+
+do_push_pr() {
+  require_on_main
+  require_clean_worktree
+  ensure_origin_main_ref
+
+  local ahead_count
+  ahead_count="$(git -C "$REPO" rev-list --count origin/main..HEAD)"
+  if [[ "$ahead_count" == "0" ]]; then
+    echo "nothing to push"
+    return 0
+  fi
+
+  local sha
+  sha="$(short_head_sha)"
+  local published_sha
+  published_sha="$(git -C "$REPO" rev-parse HEAD)"
+
+  local branch
   if [[ -n "$TOPIC" ]]; then
-    PUSH_ARGS+=(--topic "$TOPIC")
+    branch="publish/$TOPIC"
+  else
+    branch="publish/$sha"
   fi
-  if [[ -n "$MESSAGE" ]]; then
-    PUSH_ARGS+=(--message "$MESSAGE")
-  fi
-  if [[ -n "$PR_TITLE" ]]; then
-    PUSH_ARGS+=(--pr-title "$PR_TITLE")
-  fi
-  if [[ -n "$POINT_NAME" ]]; then
-    PUSH_ARGS+=(--point-name "$POINT_NAME")
-  fi
-  exec python3 "$SCRIPT_DIR/git_publish.py" "${PUSH_ARGS[@]}"
-fi
 
-if [[ "$ACTION" == "prepare" ]]; then
-  PREPARE_ARGS=(--action prepare --mode "$MODE" "${COMMON_ARGS[@]}")
-  if [[ -n "$TOPIC" ]]; then
-    PREPARE_ARGS+=(--topic "$TOPIC")
-  fi
-  if [[ -n "$MESSAGE" ]]; then
-    PREPARE_ARGS+=(--message "$MESSAGE")
-  fi
-  if [[ -n "$PR_TITLE" ]]; then
-    PREPARE_ARGS+=(--pr-title "$PR_TITLE")
-  fi
-  exec python3 "$SCRIPT_DIR/git_publish.py" "${PREPARE_ARGS[@]}"
-fi
+  local title
+  title="$(head_title)"
 
-if [[ "$ACTION" == "publish" ]]; then
-  if [[ -z "$PLAN" ]]; then
-    echo "Missing required flag: --plan <file-or-token>" >&2
+  git -C "$REPO" checkout --quiet -b "$branch"
+  git -C "$REPO" push --quiet -u origin "$branch"
+
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "error: branch '$branch' was pushed, but gh is not installed" >&2
+    exit 1
+  fi
+  if ! (cd "$REPO" && gh auth status >/dev/null 2>&1); then
+    echo "error: branch '$branch' was pushed, but gh is not authenticated (run: gh auth login)" >&2
+    exit 1
+  fi
+
+  local pr_url
+  if ! pr_url="$(cd "$REPO" && gh pr create --base main --head "$branch" --title "$title" --body "")"; then
+    echo "error: branch '$branch' was pushed, but PR creation failed" >&2
+    exit 1
+  fi
+
+  local pr_number
+  if ! pr_number="$(extract_pr_number_from_url "$pr_url")"; then
+    pr_number="$(cd "$REPO" && gh pr view "$pr_url" --json number --jq '.number')"
+  fi
+
+  if [[ -z "$pr_number" ]]; then
+    echo "error: failed to resolve PR number from gh output" >&2
+    exit 1
+  fi
+
+  {
+    printf '%s\n' "$pr_number"
+    printf '%s\n' "$published_sha"
+  } > "$REPO/$ANCHOR_FILE"
+
+  git -C "$REPO" checkout --quiet main
+
+  echo "pushed $branch"
+  echo "pr: $pr_url"
+  echo "pr-number: $pr_number"
+  echo "sha: $sha"
+}
+
+do_push_no_pr() {
+  require_on_main
+  require_clean_worktree
+
+  git -C "$REPO" push --quiet -u origin main
+
+  echo "pushed main"
+  echo "sha: $(short_head_sha)"
+}
+
+do_merge_done() {
+  require_on_main
+  require_clean_worktree
+
+  local anchor_path="$REPO/$ANCHOR_FILE"
+  if [[ ! -f "$anchor_path" ]]; then
+    die_error "no active publish cycle"
+  fi
+
+  local pr_number
+  pr_number="$(sed -n '1p' "$anchor_path" | tr -d '[:space:]')"
+  local published_sha
+  published_sha="$(sed -n '2p' "$anchor_path" | tr -d '[:space:]')"
+  if [[ -z "$pr_number" || ! "$pr_number" =~ ^[0-9]+$ ]]; then
+    die_error "invalid publish anchor: expected PR number"
+  fi
+
+  git -C "$REPO" fetch --quiet origin
+
+  if [[ -n "$published_sha" ]]; then
+    local current_head
+    current_head="$(git -C "$REPO" rev-parse HEAD)"
+    if [[ "$current_head" != "$published_sha" ]]; then
+      die_error "local main has commits after the published cycle; commit or stash before merge-done"
+    fi
+  fi
+
+  require_cmd gh
+  require_gh_auth
+
+  local pr_state
+  pr_state="$(cd "$REPO" && gh pr view "$pr_number" --json state --jq '.state')"
+  if [[ "$pr_state" != "MERGED" ]]; then
+    die_error "pr #$pr_number is not merged (state: $pr_state)"
+  fi
+
+  local head_ref
+  head_ref="$(cd "$REPO" && gh pr view "$pr_number" --json headRefName --jq '.headRefName')"
+  if [[ -z "$head_ref" ]]; then
+    die_error "failed to resolve PR head branch for #$pr_number"
+  fi
+
+  git -C "$REPO" reset --hard origin/main >/dev/null
+
+  if git -C "$REPO" show-ref --verify --quiet "refs/heads/$head_ref"; then
+    git -C "$REPO" branch -D "$head_ref" >/dev/null
+  fi
+  git -C "$REPO" push origin --delete "$head_ref" >/dev/null 2>&1 || true
+
+  rm -f "$anchor_path"
+
+  echo "verified: pr #$pr_number merged"
+  echo "synced main $(short_head_sha)"
+  echo "deleted: $head_ref"
+}
+
+parse_args() {
+  if [[ $# -eq 0 ]]; then
     usage
     exit 2
   fi
-  exec python3 "$SCRIPT_DIR/git_publish.py" --action publish --mode "$MODE" "${COMMON_ARGS[@]}" --plan "$PLAN"
-fi
 
-if [[ "$DRY_RUN" -eq 1 ]]; then
-  PREPARE_ARGS=(--action prepare --mode "$MODE" "${COMMON_ARGS[@]}")
-  if [[ -n "$TOPIC" ]]; then
-    PREPARE_ARGS+=(--topic "$TOPIC")
-  fi
-  if [[ -n "$MESSAGE" ]]; then
-    PREPARE_ARGS+=(--message "$MESSAGE")
-  fi
-  if [[ -n "$PR_TITLE" ]]; then
-    PREPARE_ARGS+=(--pr-title "$PR_TITLE")
-  fi
-  exec python3 "$SCRIPT_DIR/git_publish.py" "${PREPARE_ARGS[@]}"
-fi
+  ACTION="$1"
+  shift
 
-PREPARE_ARGS=(--action prepare --mode "$MODE" --repo "$REPO" --json)
-if [[ -n "$REMOTE" ]]; then
-  PREPARE_ARGS+=(--remote "$REMOTE")
-fi
-if [[ -n "$BASE" ]]; then
-  PREPARE_ARGS+=(--base "$BASE")
-fi
-if [[ -n "$TOPIC" ]]; then
-  PREPARE_ARGS+=(--topic "$TOPIC")
-fi
-if [[ -n "$MESSAGE" ]]; then
-  PREPARE_ARGS+=(--message "$MESSAGE")
-fi
-if [[ -n "$PR_TITLE" ]]; then
-  PREPARE_ARGS+=(--pr-title "$PR_TITLE")
-fi
-PLAN_OUTPUT="$(python3 "$SCRIPT_DIR/git_publish.py" "${PREPARE_ARGS[@]}")"
-INCLUDED_COUNT="$(printf '%s\n' "$PLAN_OUTPUT" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["included_paths"]))')"
-if [[ "$INCLUDED_COUNT" == "0" ]]; then
-  if [[ "$JSON" -eq 1 ]]; then
-    printf '%s\n' "$PLAN_OUTPUT"
-  else
-    echo "No changes to publish."
+  case "$ACTION" in
+    commit)
+      ;;
+    push)
+      if [[ $# -eq 0 ]]; then
+        die_usage "push requires mode: pr or no-pr"
+      fi
+      MODE="$1"
+      shift
+      if [[ "$MODE" != "pr" && "$MODE" != "no-pr" ]]; then
+        die_usage "invalid push mode: $MODE (expected pr|no-pr)"
+      fi
+      ;;
+    merge-done)
+      ;;
+    *)
+      die_usage "unknown action: $ACTION"
+      ;;
+  esac
+
+  local point_parts=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)
+        shift
+        [[ $# -eq 0 ]] && die_usage "--repo requires a value"
+        REPO="$1"
+        shift
+        ;;
+      --topic)
+        shift
+        [[ $# -eq 0 ]] && die_usage "--topic requires a value"
+        TOPIC="$1"
+        shift
+        ;;
+      --*)
+        die_usage "unknown option: $1"
+        ;;
+      *)
+        if [[ "$ACTION" == "commit" ]]; then
+          point_parts+=("$1")
+          shift
+        else
+          die_usage "unexpected positional argument: $1"
+        fi
+        ;;
+    esac
+  done
+
+  if [[ ${#point_parts[@]} -gt 0 ]]; then
+    POINT_NAME="${point_parts[*]}"
   fi
-  exit 0
-fi
-PLAN_PATH="$(printf '%s\n' "$PLAN_OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["plan_path"])')"
-exec python3 "$SCRIPT_DIR/git_publish.py" --action publish --mode "$MODE" "${COMMON_ARGS[@]}" --plan "$PLAN_PATH"
+
+  if [[ "$ACTION" != "push" || "$MODE" != "pr" ]]; then
+    if [[ -n "$TOPIC" ]]; then
+      die_usage "--topic is only supported for: push pr"
+    fi
+  fi
+}
+
+main() {
+  parse_args "$@"
+  validate_repo
+
+  case "$ACTION" in
+    commit)
+      do_commit
+      ;;
+    push)
+      if [[ "$MODE" == "pr" ]]; then
+        do_push_pr
+      else
+        do_push_no_pr
+      fi
+      ;;
+    merge-done)
+      do_merge_done
+      ;;
+    *)
+      die_usage "unknown action: $ACTION"
+      ;;
+  esac
+}
+
+main "$@"

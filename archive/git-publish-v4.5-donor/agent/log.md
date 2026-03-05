@@ -101,9 +101,3 @@
 2026-03-03 01:15 | policy | git-publish roadmap | deferred source-of-truth cleanup for SKILL.md and deferred push no-pr protocol consistency work
 2026-03-03 01:15 | policy | git-publish roadmap | deferred cleanup of agent files so procedural GitHub protocol lives in SKILL.md, not maintainer context
 2026-03-04 20:27 | milestone | archive git-publish donor | copied git-publish to /Users/glebnikitin/work/rss/skills/archive/git-publish-v4.5-donor as read-only donor baseline
-2026-03-04 21:37 | milestone | spec 001 context refresh | accepted by user and closed; roadmap state advanced to next spec
-2026-03-04 23:55 | milestone | spec 002 git-commit | accepted; git-publish/scripts/run created with commit operation, 9/9 tests passed
-2026-03-05 00:26 | validation | spec 003 review | major blockers closed (publish-source explicit range, PR-number anchor added); noted remaining branch-cleanup anchoring risk before execution
-2026-03-05 00:28 | validation | spec 003 review | accepted for implementation after anchored branch cleanup update; noted minor numbering/test-note nits
-2026-03-05 00:51 | validation | spec 003 implementation review | found blocking issues: clean-worktree check allows excluded dirty files and merge-done can reset-away local commits created after publish cycle
-2026-03-05 01:04 | milestone | spec 003 push-and-merge | accepted, archived, roadmap closed (active_spec=none), and context handoff refreshed

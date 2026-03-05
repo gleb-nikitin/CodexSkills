@@ -200,6 +200,9 @@ Current limitation:
 - remote feature branch deletion on GitHub is not guaranteed by current hygiene behavior alone
 - GitHub auto-delete branch settings or manual deletion may still be needed
 - exact merged-PR verification still depends on GitHub lookup being available through `gh` auth or the API token fallback
+- part of the newest operator intent still lives only in `agent/` maintainer context rather than in `SKILL.md`; this should be corrected in a future update so external agents can rely on `SKILL.md` alone
+- `agent/` files still carry some procedural GitHub protocol guidance that should eventually move out of maintainer context and back into `SKILL.md`
+- `push no-pr` is still inconsistent with PR mode for clean-worktree publish-from-local-commits; treat that as deferred protocol debt, not as final intended behavior
 
 Known next-fix candidate:
 - commit-range `push` is rename-aware and now refuses classifier-conflicting renames instead of silently degrading into deletes or partial publish output
@@ -215,6 +218,8 @@ Most recent production feedback:
 - saved local checkpoint commits can now be published through `пуш` without requiring a dirty worktree
 - if the only tracked delta between `комит` and `пуш` is the active tracked project log path, `пуш` now auto-checkpoints that log locally before PR-branch checkout instead of failing on overwrite protection
 - `autocheckpoint: applied` in push output means that local pre-publish checkpoint of the active tracked project log was created and kept only on source-branch local history
+- clarified user intent: `push` is supposed to publish only the latest safepoint. If newer includable worktree changes exist after that safepoint, they are not part of the publish candidate and must remain local.
+- next protocol tightening: `push` should report clearly when newer local worktree changes exist outside the last safepoint, so omission from the PR is explicit rather than surprising.
 
 Success marker format:
 - `YYYY-MM-DD HH:MM | git-publish skill | push mode=<pr|no-pr> branch=<name> base=<name> | success`
